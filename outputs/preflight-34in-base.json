@@ -1,0 +1,100 @@
+{
+  "job_id": "job-ae539f29167a",
+  "params": {
+    "width_in": 34,
+    "height_box_in": 30,
+    "overall_height_in": 34.5,
+    "depth_in": 24,
+    "layout": "drawer-bank",
+    "material_thickness_in": 0.453,
+    "material_name": "PureBond birch",
+    "pin_grid_enabled": false,
+    "drawer_count": 2,
+    "toe_kick_height_in": 4.5,
+    "toe_kick_recess_in": 3.0,
+    "slide_clearance_in": 0.5,
+    "thickness_is_nominal": false,
+    "tabs_enabled": false,
+    "provisional": [
+      "toe_kick_recess_in",
+      "slide_clearance_in"
+    ]
+  },
+  "parts_count": 16,
+  "sheets_count": 10,
+  "preflight": {
+    "passed": true,
+    "checks": [
+      {
+        "rule": "R1",
+        "status": "pass",
+        "part": "",
+        "detail": "Cabinet fits 25 x 50 in travel.",
+        "fix": ""
+      },
+      {
+        "rule": "R1-tile",
+        "status": "pass",
+        "part": "",
+        "detail": "Tiled parts: back. Rectangular panels tile automatically with index marks.",
+        "fix": "Cut tiles in tile_index order and join on index marks."
+      },
+      {
+        "rule": "R2",
+        "status": "pass",
+        "part": "",
+        "detail": "Material thickness fits 7 in Z travel.",
+        "fix": ""
+      },
+      {
+        "rule": "R3",
+        "status": "pass",
+        "part": "",
+        "detail": "Thickness is a measured value.",
+        "fix": ""
+      },
+      {
+        "rule": "R4",
+        "status": "pass",
+        "part": "",
+        "detail": "Tape mode: clamp zones disabled. Painter's tape is primary, clamps are backup only.",
+        "fix": ""
+      },
+      {
+        "rule": "R5",
+        "status": "pass",
+        "part": "",
+        "detail": "No small-part tape warning.",
+        "fix": ""
+      },
+      {
+        "rule": "R6-dims",
+        "status": "pass",
+        "part": "",
+        "detail": "All part dims are positive.",
+        "fix": ""
+      },
+      {
+        "rule": "R6-nesting",
+        "status": "pass",
+        "part": "",
+        "detail": "Parts list and nesting agree one-for-one: every part id appears in nesting placements.",
+        "fix": ""
+      },
+      {
+        "rule": "R6-dryfit",
+        "status": "pass",
+        "part": "",
+        "detail": "Dry-fit dims agree with params within 1/32 in: 34.0000 x 24.0000 x 30.0000 in (W x D x H).",
+        "fix": ""
+      },
+      {
+        "rule": "R1-bed",
+        "status": "pass",
+        "part": "",
+        "detail": "All untiled placements fit the 25 x 50 in bed.",
+        "fix": ""
+      }
+    ]
+  }
+}

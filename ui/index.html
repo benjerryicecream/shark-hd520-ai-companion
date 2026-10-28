@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HD520 Cabinet Companion</title>
+<style>
+  body { font-family: sans-serif; margin: 2em auto; max-width: 900px; padding: 0 1em; color: #000; background: #fff; }
+  h1 { font-size: 1.5em; }
+  label { display: block; margin: 0.6em 0 0.2em; font-weight: bold; }
+  input, select, textarea { width: 100%; box-sizing: border-box; padding: 0.4em; border: 1px solid #000; background: #fff; color: #000; }
+  input[type="checkbox"] { width: auto; }
+  button { padding: 0.5em 1em; margin: 0.5em 0.5em 0.5em 0; border: 1px solid #000; background: #fff; color: #000; cursor: pointer; }
+  button:disabled { color: #888; border-color: #888; cursor: not-allowed; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #000; padding: 0.4em; text-align: left; }
+  .box { border: 1px solid #000; padding: 1em; margin: 1em 0; }
+  .fail { font-weight: bold; }
+  .pass { color: #000; }
+  #status { margin: 1em 0; font-weight: bold; }
+  #cutlist { white-space: pre-wrap; font-family: monospace; }
+  .row { display: flex; gap: 1em; }
+  .row > div { flex: 1; }
+  @media print {
+    body { color: #000; background: #fff; margin: 0; max-width: none; }
+    form, #generateBtn, #dxfBtn, #printBtn, #status, .noprint { display: none !important; }
+    .box { border: none; padding: 0; }
+    table, th, td { border-color: #000; }
+  }
+</style>
+</head>
+<body>
+<h1>HD520 Cabinet Companion</h1>
+<p>Generate a frameless cabinet job for the Shark HD520. This page talks to the local server only. No machine control exists in this app.</p>
+
+<form id="cabForm">
+  <label for="brief">Brief (plain words, optional)</label>
+  <textarea id="brief" rows="3" placeholder="Example: 34 inch wide drawer bank, PureBond birch"></textarea>
+
+  <div class="row">
+    <div>
+      <label for="width">Width (in)</label>
+      <input id="width" type="number" step="0.001" min="0" value="34" required>
+    </div>
+    <div>
+      <label for="boxHeight">Box height (in)</label>
+      <input id="boxHeight" type="number" step="0.001" min="0" value="30" required>
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <label for="overallHeight">Overall height (in)</label>
+      <input id="overallHeight" type="number" step="0.001" min="0" value="34.5" required>
+    </div>
+    <div>
+      <label for="depth">Depth (in)</label>
+      <input id="depth" type="number" step="0.001" min="0" value="24" required>
+    </div>
+  </div>
+
+  <label for="layout">Layout</label>
+  <select id="layout">
+    <option value="doors">Doors</option>
+    <option value="drawers-over-doors">Drawers over doors</option>
+    <option value="drawer-bank" selected>Drawer bank</option>
+    <option value="sink-base">Sink base</option>
+    <option value="pantry">Pantry</option>
+  </select>
+
+  <label for="thickness">Material thickness (in)</label>
+  <input id="thickness" type="number" step="0.001" min="0" value="0.453" required>
+
+  <label><input id="pinGrid" type="checkbox"> Pin grid (5 mm grid when on)</label>
+
+  <label for="provider">Provider</label>
+  <select id="provider">
+    <option value="local" selected>Local (no model call)</option>
+    <option value="meta">Meta (needs a server key, else refused)</option>
+  </select>
+
+  <label for="jobName">Job name (optional, used in the saved file name)</label>
+  <input id="jobName" type="text" placeholder="Example: vicki-pantry">
+
+  <label for="caller">Caller name (optional)</label>
+  <input id="caller" type="text" value="ui">
+
+  <label for="token">API token (kept in this tab only, never saved into a job or export)</label>
+  <input id="token" type="password" autocomplete="off" placeholder="Paste the server token here">
+
+  <button type="submit" id="generateBtn">Generate</button>
+</form>
+
+<div id="status" role="status"></div>
+
+<div id="results" style="display:none">
+  <div class="box" id="providerBox">
+    <h2>Provider record</h2>
+    <p id="providerText"></p>
+  </div>
+
+  <div class="box" id="provisionalBox">
+    <h2>Provisional values used</h2>
+    <p>These values are provisional, not locked. See the README for what is still unconfirmed.</p>
+    <ul id="provisionalList"></ul>
+    <p id="pinGridState"></p>
+  </div>
+
+  <div class="box">
+    <h2>Parts</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Size (in)</th><th>Qty</th><th>Material</th><th>Edge banding</th></tr></thead>
+      <tbody id="partsBody"></tbody>
+    </table>
+  </div>
+
+  <div class="box">
+    <h2>Nesting sheets (setups)</h2>
+    <ul id="sheetsList"></ul>
+  </div>
+
+  <div class="box">
+    <h2>Preflight</h2>
+    <p id="preflightSummary"></p>
+    <ul id="checksList"></ul>
+  </div>
+
+  <div class="box" id="cutlistBox">
+    <h2>Cut list</h2>
+    <p id="cutlistNote"></p>
+    <pre id="cutlist"></pre>
+    <button type="button" id="printBtn" class="noprint">Print cut list</button>
+  </div>
+
+  <div class="box noprint">
+    <h2>DXF</h2>
+    <p id="dxfNote"></p>
+    <button type="button" id="dxfBtn">Download DXF</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var tokenField = document.getElementById('token');
+  var saved = sessionStorage.getItem('hd520_api_token');
+  if (saved) { tokenField.value = saved; }
+
+  var currentJob = null;
+
+  function fmt(n) {
+    var s = Number(n).toFixed(3);
+    return s.replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  document.getElementById('cabForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var token = tokenField.value.trim();
+    sessionStorage.setItem('hd520_api_token', token);
+    var caller = document.getElementById('caller').value.trim() || 'ui';
+    var brief = document.getElementById('brief').value.trim();
+    var params = {
+      width_in: parseFloat(document.getElementById('width').value),
+      height_box_in: parseFloat(document.getElementById('boxHeight').value),
+      overall_height_in: parseFloat(document.getElementById('overallHeight').value),
+      depth_in: parseFloat(document.getElementById('depth').value),
+      layout: document.getElementById('layout').value,
+      material_thickness_in: parseFloat(document.getElementById('thickness').value),
+      pin_grid_enabled: document.getElementById('pinGrid').checked,
+      provider: document.getElementById('provider').value
+    };
+    if (brief) { params.brief_text = brief; }
+    var jobName = document.getElementById('jobName').value.trim();
+    if (jobName) { params.job_name = jobName; }
+
+    var status = document.getElementById('status');
+    status.textContent = 'Generating...';
+    document.getElementById('results').style.display = 'none';
+    currentJob = null;
+
+    fetch('/api/generate_cabinet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
+      body: JSON.stringify({ params: params, caller: caller })
+    }).then(function (resp) {
+      return resp.json().then(function (data) {
+        if (!resp.ok) { throw new Error(data.error || ('Request failed: ' + resp.status)); }
+        return data;
+      });
+    }).then(function (job) {
+      currentJob = job;
+      render(job);
+      status.textContent = 'Done. Job: ' + job.job_id;
+    }).catch(function (err) {
+      status.textContent = 'Error: ' + err.message;
+    });
+  });
+
+  function render(job) {
+    document.getElementById('results').style.display = 'block';
+    var rec = job.provider_record || {};
+    document.getElementById('providerText').textContent =
+      'Provider: ' + (rec.provider || 'unknown') + ', model: ' + (rec.model || 'unknown') +
+      '. This is the provider that actually ran.';
+
+    var prov = (job.params && job.params.provisional) || [];
+    var list = document.getElementById('provisionalList');
+    list.innerHTML = '';
+    var values = {
+      toe_kick_recess_in: 'Toe-kick recess: ' + fmt(job.params.toe_kick_recess_in) + ' in (provisional)',
+      slide_clearance_in: 'Slide clearance: ' + fmt(job.params.slide_clearance_in) + ' in per side (provisional, used only because no slide clearance was supplied)',
+      material_thickness_in: 'Material thickness: ' + fmt(job.params.material_thickness_in) + ' in (provisional, supplied as a nominal thickness, measured thickness required)'
+    };
+    if (prov.length === 0) {
+      var li0 = document.createElement('li');
+      li0.textContent = 'No provisional values used.';
+      list.appendChild(li0);
+    } else {
+      prov.forEach(function (name) {
+        var li = document.createElement('li');
+        li.textContent = values[name] || (name + ' (provisional)');
+        list.appendChild(li);
+      });
+    }
+    document.getElementById('pinGridState').textContent =
+      'Pin grid: ' + (job.params.pin_grid_enabled ? 'ON, 5 mm grid' : 'OFF');
+
+    var tbody = document.getElementById('partsBody');
+    tbody.innerHTML = '';
+    (job.parts || []).forEach(function (p) {
+      var tr = document.createElement('tr');
+      var cells = [p.name, fmt(p.width_in) + ' x ' + fmt(p.height_in), p.quantity, p.material, p.edge_banding];
+      cells.forEach(function (c) {
+        var td = document.createElement('td');
+        td.textContent = c;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+
+    var sheetsEl = document.getElementById('sheetsList');
+    sheetsEl.innerHTML = '';
+    var sheets = (job.nesting && job.nesting.sheets) || [];
+    sheets.forEach(function (s) {
+      var li = document.createElement('li');
+      li.textContent = s.sheet_id + ': ' + (s.placements || []).length + ' placements';
+      sheetsEl.appendChild(li);
+    });
+
+    var pre = job.preflight || {};
+    var passed = pre.passed === true;
+    document.getElementById('preflightSummary').textContent =
+      passed ? 'Preflight passed.' : 'Preflight FAILED. Nothing exports. See the failures below.';
+    var checksEl = document.getElementById('checksList');
+    checksEl.innerHTML = '';
+    (pre.checks || []).forEach(function (c) {
+      var li = document.createElement('li');
+      li.textContent = c.rule + ': ' + c.status + ' - ' + c.detail + (c.fix ? (' Fix: ' + c.fix) : '');
+      if (c.status === 'fail') { li.className = 'fail'; }
+      checksEl.appendChild(li);
+    });
+
+    var printBtn = document.getElementById('printBtn');
+    var dxfBtn = document.getElementById('dxfBtn');
+    var cutNote = document.getElementById('cutlistNote');
+    var dxfNote = document.getElementById('dxfNote');
+    var cutEl = document.getElementById('cutlist');
+    if (passed) {
+      cutNote.textContent = 'Cut list is ready to print in black on white.';
+      cutEl.textContent = job.cut_list_text || '';
+      printBtn.disabled = false;
+      dxfNote.textContent = 'DXF is ready to download for import into VCarve.';
+      dxfBtn.disabled = false;
+    } else {
+      cutNote.textContent = 'NOT EXPORTABLE: preflight failed, so this cut list is shown for review only and cannot be printed as an export.';
+      cutEl.textContent = job.cut_list_text || 'No cut list text: the engine withholds exports when preflight fails.';
+      printBtn.disabled = true;
+      dxfNote.textContent = 'DXF download is disabled because preflight failed. Nothing exports on a failed preflight.';
+      dxfBtn.disabled = true;
+    }
+  }
+
+  document.getElementById('printBtn').addEventListener('click', function () {
+    if (!currentJob || !(currentJob.preflight && currentJob.preflight.passed)) { return; }
+    window.print();
+  });
+
+  document.getElementById('dxfBtn').addEventListener('click', function () {
+    if (!currentJob || !(currentJob.preflight && currentJob.preflight.passed)) { return; }
+    if (!currentJob.dxf_text) { return; }
+    var blob = new Blob([currentJob.dxf_text], { type: 'application/dxf' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = (currentJob.job_id || 'job') + '.dxf';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+})();
+</script>
+</body>
+</html>

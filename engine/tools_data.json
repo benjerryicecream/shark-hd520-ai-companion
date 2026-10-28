@@ -1,0 +1,221 @@
+{
+  "source_files": [
+    "vtdb-my-tools-2-parsed.json",
+    "vtdb-my-tools-3-parsed.json"
+  ],
+  "note": "Cleaned catalog. File2 tapered row (tool #1) is superseded by the file3 tapered row (tool #8). No feeds, speeds, or shanks invented.",
+  "cutting_data": "Hardwood only; no plywood data",
+  "shank": "unknown for every row: the .vtdb stores no shank, so none is invented",
+  "duplicate_tool_numbers": {
+    "1": [
+      "V-Bit 30.0 degree 1/4in",
+      "V-Bit 90.0 degree 2/3"
+    ],
+    "9": [
+      "V-Bit 60 degree 1/4in (name_format row)",
+      "V-Bit 90.0 degree 1/4in"
+    ]
+  },
+  "tapered_ball_nose_units_ambiguous": true,
+  "tapered_ball_nose_note": "Stepdown/stepover units for the tapered ball nose row are ambiguous in the source (length_units code 0 with mixed inch-looking values), so raw source values are carried unchanged and flagged here, never converted or trusted as inches.",
+  "spindle_range_rpm": [
+    6000,
+    24000
+  ],
+  "tools": [
+    {
+      "tool_number": 2,
+      "group": "My-Tools",
+      "type": "End Mill",
+      "diameter": 0.0625,
+      "included_angle": null,
+      "flat_diameter": null,
+      "num_flutes": 2,
+      "tip_radius": null,
+      "name_format": "{Tool Type} ({Diameter|F}{Units Short})",
+      "shank": "unknown",
+      "hardwood": {
+        "feed_rate": 28.0,
+        "plunge_rate": 8.0,
+        "spindle_speed_rpm": 19000,
+        "stepdown": 0.016,
+        "stepover": 0.01875,
+        "clear_stepover": null,
+        "rate_units_code": 4,
+        "length_units_code": 1
+      },
+      "flags": []
+    },
+    {
+      "tool_number": 4,
+      "group": "My-Tools",
+      "type": "End Mill",
+      "diameter": 0.25,
+      "included_angle": null,
+      "flat_diameter": null,
+      "num_flutes": 2,
+      "tip_radius": null,
+      "name_format": "{Tool Type} ({Diameter|F}{Units Short})",
+      "shank": "unknown",
+      "hardwood": {
+        "feed_rate": 36.0,
+        "plunge_rate": 12.0,
+        "spindle_speed_rpm": 19000,
+        "stepdown": 0.06,
+        "stepover": 0.1,
+        "clear_stepover": null,
+        "rate_units_code": 4,
+        "length_units_code": 1
+      },
+      "flags": []
+    },
+    {
+      "tool_number": 205,
+      "group": "My-Tools",
+      "type": "End Mill",
+      "diameter": 0.25,
+      "included_angle": null,
+      "flat_diameter": null,
+      "num_flutes": 1,
+      "tip_radius": null,
+      "name_format": "End Mill 1/4\" Single Flute Upcut",
+      "shank": "unknown",
+      "hardwood": {
+        "feed_rate": 80.0,
+        "plunge_rate": 25.0,
+        "spindle_speed_rpm": 15000,
+        "stepdown": 0.125,
+        "stepover": 0.1,
+        "clear_stepover": null,
+        "rate_units_code": 4,
+        "length_units_code": 1
+      },
+      "flags": []
+    },
+    {
+      "tool_number": 9,
+      "group": "My-Tools",
+      "type": "V-Bit",
+      "diameter": 0.25,
+      "included_angle": 60.0,
+      "flat_diameter": null,
+      "num_flutes": 2,
+      "tip_radius": null,
+      "name_format": "{Tool Type} ({Included Angle|.0}\u00b0 - {Diameter|F}{Units Short})",
+      "shank": "unknown",
+      "hardwood": {
+        "feed_rate": 60.0,
+        "plunge_rate": 8.0,
+        "spindle_speed_rpm": 18000,
+        "stepdown": 0.04,
+        "stepover": 0.005,
+        "clear_stepover": 0.05,
+        "rate_units_code": 4,
+        "length_units_code": 1
+      },
+      "flags": [
+        "duplicate tool number"
+      ]
+    },
+    {
+      "tool_number": 1,
+      "group": "My-Tools",
+      "type": "V-Bit",
+      "diameter": 0.25,
+      "included_angle": 30.0,
+      "flat_diameter": null,
+      "num_flutes": 2,
+      "tip_radius": null,
+      "name_format": "V-Bit 30.0 degree 1/4\"",
+      "shank": "unknown",
+      "hardwood": {
+        "feed_rate": 24.0,
+        "plunge_rate": 8.0,
+        "spindle_speed_rpm": 18000,
+        "stepdown": 0.125,
+        "stepover": 0.005,
+        "clear_stepover": 0.05,
+        "rate_units_code": 4,
+        "length_units_code": 1
+      },
+      "flags": [
+        "duplicate tool number"
+      ]
+    },
+    {
+      "tool_number": 9,
+      "group": "My-Tools",
+      "type": "V-Bit",
+      "diameter": 0.25,
+      "included_angle": 90.0,
+      "flat_diameter": null,
+      "num_flutes": 2,
+      "tip_radius": null,
+      "name_format": "V-Bit 90.0 degree 1/4\"",
+      "shank": "unknown",
+      "hardwood": {
+        "feed_rate": 33.0,
+        "plunge_rate": 11.0,
+        "spindle_speed_rpm": 13000,
+        "stepdown": 0.05,
+        "stepover": 0.005,
+        "clear_stepover": 0.05,
+        "rate_units_code": 4,
+        "length_units_code": 1
+      },
+      "flags": [
+        "duplicate tool number"
+      ]
+    },
+    {
+      "tool_number": 1,
+      "group": "My-Tools",
+      "type": "V-Bit",
+      "diameter": 0.66,
+      "included_angle": 90.0,
+      "flat_diameter": null,
+      "num_flutes": 2,
+      "tip_radius": null,
+      "name_format": "V-Bit 90.0 degree 2/3",
+      "shank": "unknown",
+      "hardwood": {
+        "feed_rate": 33.0,
+        "plunge_rate": 11.0,
+        "spindle_speed_rpm": 13000,
+        "stepdown": 0.33,
+        "stepover": 0.013200000000000002,
+        "clear_stepover": 0.132,
+        "rate_units_code": 4,
+        "length_units_code": 1
+      },
+      "flags": [
+        "duplicate tool number"
+      ]
+    },
+    {
+      "tool_number": 8,
+      "group": "My-Tools",
+      "type": "Tapered",
+      "diameter": 6.35,
+      "included_angle": 20.0,
+      "flat_diameter": null,
+      "num_flutes": 2,
+      "tip_radius": 0.03125,
+      "name_format": "{Tool Type} ({Side Angle|.0}\u00b0, Tip {Tip Radius} - {Diameter|F}{Units Short})",
+      "shank": "unknown",
+      "hardwood": {
+        "feed_rate": 30.0,
+        "plunge_rate": 30.0,
+        "spindle_speed_rpm": 12000,
+        "stepdown": 0.635,
+        "stepover": 0.0125,
+        "clear_stepover": 0.0125,
+        "rate_units_code": 4,
+        "length_units_code": 0
+      },
+      "flags": [
+        "tapered stepdown/stepover units ambiguous"
+      ]
+    }
+  ]
+}
