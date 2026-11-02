@@ -72,9 +72,15 @@ is presented as locked unless it says so.
   mode with token injection and a Quit button, desktop.py entry,
   hd520-companion.spec, build.bat, run-desktop.bat. Pushed to the
   public repo 2026-11-02 as the second commit; the sync record
-  carries the SHA. The exe itself is NOT built yet: PyInstaller does
-  not cross-compile, so build.bat must run once on the Windows
-  desktop.
+  carries the SHA. The onefile exe built on the desktop 2026-11-02
+  did not serve the page; see the follow-up bullet.
+- 2026-11-02 follow-up, pending push: the onefile exe did not serve
+  the page while the from-source run works, so the packaging was
+  reworked to onedir (no extraction step, visible files), the UI was
+  restyled (screen polish, print stays monochrome), the exe now opens
+  a Chrome app-mode window with a 60s first-launch wait, and packaged
+  runs log to desktop.log. The Chrome app-mode path is untested here
+  (no Chrome on this VM).
 - The Windows vault path (Credential Manager via ctypes) is
   untested here: this VM is Linux, so only the file fallback was
   exercised. The first Windows run should confirm the Settings page
