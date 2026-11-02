@@ -74,13 +74,26 @@ is presented as locked unless it says so.
   public repo 2026-11-02 as the second commit; the sync record
   carries the SHA. The onefile exe built on the desktop 2026-11-02
   did not serve the page; see the follow-up bullet.
-- 2026-11-02 follow-up, pending push: the onefile exe did not serve
+- 2026-11-02 follow-up, pushed the same day as the third commit: the onefile exe did not serve
   the page while the from-source run works, so the packaging was
   reworked to onedir (no extraction step, visible files), the UI was
   restyled (screen polish, print stays monochrome), the exe now opens
   a Chrome app-mode window with a 60s first-launch wait, and packaged
   runs log to desktop.log. The Chrome app-mode path is untested here
   (no Chrome on this VM).
+
+## Visual layout picker (2026-11-02, pending push)
+- The layout dropdown is replaced by five picture cards, each with a
+  front-elevation SVG diagram of what the layout builds: doors (two
+  doors), drawers over doors (one drawer, two doors), drawer bank
+  (two drawers, the engine default count), sink base (sink basin
+  outline, false front, two doors), pantry (tall, two doors). The
+  diagrams match the engine's actual divisions.
+- A live schematic front view below the picker redraws from the
+  width, box height, and selected layout inputs. It is labeled as
+  schematic: gaps and hardware are not shown. Print output is
+  unchanged, because the form (picker and preview included) is
+  hidden in print.
 - The Windows vault path (Credential Manager via ctypes) is
   untested here: this VM is Linux, so only the file fallback was
   exercised. The first Windows run should confirm the Settings page
