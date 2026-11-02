@@ -34,16 +34,30 @@ Port: 8791. The server binds 127.0.0.1 only. It is reachable from the desktop ma
 
 Token rule: every /api call needs header X-API-Token (or Authorization: Bearer) matching env HD520_API_TOKEN. If HD520_API_TOKEN is unset at startup, the server generates a random token, prints it once to stdout with a clear label, and requires it. No token, no calls, including from localhost. The UI page itself needs no token to load, but every API call from it still needs the token, which the UI holds in sessionStorage only and never writes into a job or an export.
 
-Meta rule: provider "meta" works only when the caller requests provider "meta" AND env HD520_META_API_KEY is set on the server. When Meta is requested but no key is set, the server returns HTTP 400 saying Meta is not configured. It never silently runs the local parser and labels the result Meta. When Meta is requested with a key set, the server maps HD520_META_API_KEY to the engine's META_API_KEY variable once at startup (the engine reads META_API_KEY or META_MODEL_API_KEY). Note: the engine runs the Meta parse only when a brief text is supplied; a params-only request records the requested provider without a model call. See API_NOTES.md.
+Meta rule: provider "meta" works only when the caller requests provider "meta" AND a Meta key is configured. The effective key, in precedence order, is: a key stored through the Settings page (Windows Credential Manager, else a protected local file; see keystore.py), env HD520_META_API_KEY, env META_API_KEY. The resolved key is mapped to the engine's META_API_KEY variable before every Meta call, so a key saved through Settings works without a restart. When Meta is requested but no key is configured, the server returns HTTP 400 saying Meta is not configured. It never silently runs the local parser and labels the result Meta. Note: the engine runs the Meta parse only when a brief text is supplied; a params-only request records the requested provider without a model call. See API_NOTES.md.
 
-MCP launch: `python3 mcp_server.py` (on Windows: `py mcp_server.py`). It speaks JSON-RPC over stdio. Its token rule matches the REST rule, except a generated token is printed once to stderr, never stdout, so stdout stays clean JSON-RPC.
+MCP launch: `python3 mcp_server.py` (on Windows: `py mcp_server.py`). It speaks JSON-RPC over stdio. Its token rule matches the REST rule, except a generated token is printed once to stderr, never stdout, so stdout stays clean JSON-RPC. The MCP server resolves the Meta key at startup, so a key saved through the desktop app's Settings page is picked up on the next MCP start.
+
+## Desktop app (standalone exe)
+
+Try it without building anything: double-click run-desktop.bat, or run `py desktop.py` from this folder. That starts the server in desktop mode and opens the UI in the default browser with the API token already filled in. Quit from the Settings Quit button.
+
+Build the exe (run once, on the Windows desktop): double-click build.bat, or run `py -m PyInstaller hd520-companion.spec` from this folder. PyInstaller does not cross-compile, so the exe must be built on Windows; it cannot be built from the Linux VM. Output: dist\HD520Companion.exe, one file, no console window, no Python install needed to run it. First launch may show a Windows SmartScreen warning because the exe is unsigned: choose More info, then Run anyway.
+
+Desktop mode details: the server still binds 127.0.0.1 port 8791 only, and the API token still gates every API call from any other client; the only difference is the UI page itself is served with the token injected, so the desktop user never types it. That trade is deliberate and single-user only. Jobs in desktop mode (and in the packaged exe) are stored under the per-user data dir (Windows: %APPDATA%\HD520Companion\jobs), not the app folder, because the exe runs from a temporary extraction dir that is wiped on exit. The same exe runs the MCP server with `HD520Companion.exe --mcp` (stdio, same token rule).
+
+Meta key in the desktop app: open Settings in the UI, paste the dev.meta.ai key once, Save. It is stored in Windows Credential Manager (no new dependency; on a non-Windows machine it falls back to a 0600 file under the per-user config dir). It is never written to a job file, log line, cut list, or DXF, and the Settings status shows only whether a key is set and where, never the key. The Settings save endpoint is the one place a key may travel in a request body, localhost only, with a valid API token; every other endpoint still refuses api_key style body fields.
 
 ## Endpoint and tool inventory
 
 REST (server.py, 127.0.0.1:8791):
 
-- GET /health: returns {"ok": true, "app": "hd520-companion", "version": "1.0-phase1"}. No auth required.
-- GET /: serves ui/index.html. No auth required for the page itself.
+- GET /health: returns {"ok": true, "app": "hd520-companion", "version": "1.0-phase1", "desktop": true/false}. No auth required.
+- GET /: serves ui/index.html. No auth required for the page itself. In desktop mode the page is served with the API token injected (localhost only, single-user trade; see the desktop section).
+- GET /api/settings: returns {"meta_configured": true/false, "meta_source": "stored-vault"/"stored-file"/"env"/"none", "desktop": true/false, "version": "1.0-phase1"}. Auth required. Never returns the key.
+- POST /api/settings/meta-key: body {"key": "..."}. Stores the Meta key (see the desktop section) and returns {"meta_configured": true, "meta_source": ...}. Auth required. This is the one endpoint that accepts a key in a body.
+- DELETE /api/settings/meta-key: removes the stored key (an environment key, if set, still applies after). Returns the new status. Auth required.
+- POST /api/shutdown: desktop mode only. Quits the app. Auth required. Returns 404 in non-desktop mode.
 - POST /api/generate_cabinet: body {"params": {...}, "caller": "name"}. Returns the engine job dict (parts, nesting, preflight, cut_list_text, dxf_text, provider_record). Auth required.
 - POST /api/check_job_hd520: body {"job": {...}, "caller": "name"}. Returns the engine preflight dict. Auth required.
 
@@ -53,7 +67,7 @@ No machine-control verb exists in either inventory. There is no start, jog, paus
 
 ## Job storage (provisional)
 
-Each generated job is saved as JSON to jobs/job-YYYYMMDD-HHMMSS-<slug>.json, where the slug comes from params job_name or, when no job name is given, from the layout. One JSON line per API call is appended to jobs/api_log.jsonl with caller, tool, job_id, provider, model, and preflight passed. No token or key is ever written to a job file, a log line, a cut list, or DXF output. This folder and naming are PROVISIONAL, pending the owner's decision on job storage. Do not treat them as final.
+Each generated job is saved as JSON to jobs/job-YYYYMMDD-HHMMSS-<slug>.json, where the slug comes from params job_name or, when no job name is given, from the layout. One JSON line per API call is appended to jobs/api_log.jsonl with caller, tool, job_id, provider, model, and preflight passed. No token or key is ever written to a job file, a log line, a cut list, or DXF output. This folder and naming are PROVISIONAL, pending the owner's decision on job storage. Do not treat them as final. In desktop mode and in the packaged exe, jobs live under the per-user data dir instead (Windows: %APPDATA%\HD520Companion\jobs), because the exe runs from a temporary extraction dir.
 
 ## Gaps carried forward
 

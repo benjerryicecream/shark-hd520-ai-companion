@@ -46,10 +46,13 @@ is presented as locked unless it says so.
 
 ## Engine Meta environment mapping note
 
-- The servers map HD520_META_API_KEY to the engine's META_API_KEY
-  at startup, overriding a pre-existing META_API_KEY in that server
-  process. The owner may prefer the engine variable to win instead.
-  This is a decision for the next stage, not a change made here.
+- The effective Meta key is now, in precedence order: a key stored
+  through the Settings page, env HD520_META_API_KEY, env
+  META_API_KEY. The stored key wins over both environment variables.
+  The REST server re-resolves before every Meta call, so a key saved
+  through Settings works without a restart; the MCP server resolves
+  at startup. This supersedes the earlier startup-only HD520 mapping
+  note.
 
 ## Params-only Meta labeling note
 
@@ -61,6 +64,21 @@ is presented as locked unless it says so.
   whether a params-only Meta request should be labeled differently,
   or refused when it carries no brief to parse. It is not a UI vs
   MCP parity failure, because both paths record it the same way.
+
+## Desktop packaging
+
+- Prepared 2026-11-02: keystore.py (Windows Credential Manager, else
+  a 0600 file), Settings endpoints and UI Settings section, desktop
+  mode with token injection and a Quit button, desktop.py entry,
+  hd520-companion.spec, build.bat, run-desktop.bat. Pushed to the
+  public repo 2026-11-02 as the second commit; the sync record
+  carries the SHA. The exe itself is NOT built yet: PyInstaller does
+  not cross-compile, so build.bat must run once on the Windows
+  desktop.
+- The Windows vault path (Credential Manager via ctypes) is
+  untested here: this VM is Linux, so only the file fallback was
+  exercised. The first Windows run should confirm the Settings page
+  reports source stored-vault.
 
 ## Desktop work still to do
 

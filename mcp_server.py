@@ -14,9 +14,15 @@ token is generated, printed once to stderr with a clear label, and
 required from then on.
 
 Meta rule: provider "meta" is used only when the caller requests it
-AND env HD520_META_API_KEY is set. When provider "meta" is requested
-but no Meta key is set, tools/call returns a JSON-RPC error and never
-silently runs the local parser and labels it Meta.
+AND a Meta key is configured. The effective key, in precedence
+order, is: a key stored through the REST Settings page (see
+keystore.py: Windows Credential Manager, else a 0600 file under the
+per-user config dir), env HD520_META_API_KEY, env META_API_KEY. The
+MCP server resolves it at startup, so a key saved through the
+desktop app's Settings page is picked up on the next MCP start.
+When provider "meta" is requested but no Meta key is configured,
+tools/call returns a JSON-RPC error and never silently runs the
+local parser and labels it Meta.
 
 No API key is ever accepted in call arguments. No token or key is
 ever written to a job file, a log line, a cut list, or DXF output.
@@ -35,9 +41,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from engine import check_job_hd520, generate_cabinet, scan_for_secrets
+from keystore import get_meta_key, user_data_dir
 
 APP_ROOT = Path(__file__).resolve().parent
-JOBS_DIR = APP_ROOT / "jobs"
+# In the packaged exe, jobs go under the per-user data dir: the exe
+# runs from a temporary extraction dir that is wiped on exit.
+JOBS_DIR = ((user_data_dir() / "jobs") if getattr(sys, "frozen", False)
+            else (APP_ROOT / "jobs"))
 VERSION = "1.0-phase1"
 
 API_KEY_ARG_KEYS = {
@@ -59,12 +69,38 @@ def _load_token():
 
 API_TOKEN = _load_token()
 
-META_KEY = os.environ.get("HD520_META_API_KEY")
-if META_KEY:
-    # The engine reads META_API_KEY (or META_MODEL_API_KEY). Map the
-    # companion variable to the engine variable once at startup.
-    # The key value is never printed or logged.
-    os.environ["META_API_KEY"] = META_KEY
+def _resolve_meta_key():
+    """Effective Meta key: stored key, then original env keys.
+
+    The original env values are captured at import, because
+    _apply_meta_key writes the resolved key into os.environ for the
+    engine: reading the live META_API_KEY back would mistake a saved
+    (and later deleted) key for an environment key.
+    """
+    stored = get_meta_key()
+    if stored:
+        return stored
+    return _HD520_ENV_KEY or _META_ENV_KEY
+
+
+def _apply_meta_key():
+    """Map the resolved key onto the engine variable. Returns key or None."""
+    key = _resolve_meta_key()
+    if key:
+        os.environ["META_API_KEY"] = key
+    elif _META_ENV_KEY:
+        os.environ["META_API_KEY"] = _META_ENV_KEY
+    else:
+        os.environ.pop("META_API_KEY", None)
+    return key
+
+
+# Original environment keys, captured before _apply_meta_key ever
+# writes to os.environ. See _resolve_meta_key.
+_HD520_ENV_KEY = os.environ.get("HD520_META_API_KEY")
+_META_ENV_KEY = os.environ.get("META_API_KEY")
+
+META_KEY = _apply_meta_key()
 
 
 def _log(text):
@@ -120,7 +156,10 @@ def _find_key_arg_key(obj):
 
 
 def _exports_clean(job):
-    values = [v for v in (API_TOKEN, META_KEY) if v]
+    values = [API_TOKEN]
+    key = _resolve_meta_key()
+    if key:
+        values.append(key)
     for field in ("dxf_text", "cut_list_text"):
         text = job.get(field) or ""
         if text and scan_for_secrets(text, values):
@@ -198,9 +237,9 @@ def _handle_tools_call(request_id, arguments):
             params = args.get("params")
             if not isinstance(params, dict):
                 return _error(request_id, -32602, "generate_cabinet requires a params object.")
-            if params.get("provider") == "meta" and not META_KEY:
+            if params.get("provider") == "meta" and not _apply_meta_key():
                 _log_call(caller, name, None, "meta", None, None, "error-meta-unconfigured")
-                return _error(request_id, -32602, "Meta is not configured. Set HD520_META_API_KEY on the server and retry, or use provider local.")
+                return _error(request_id, -32602, "Meta is not configured. Save a key on the desktop app Settings page or set HD520_META_API_KEY on the server and retry, or use provider local.")
             job = generate_cabinet(params)
             provider = (job.get("provider_record") or {}).get("provider")
             model = (job.get("provider_record") or {}).get("model")
@@ -259,7 +298,7 @@ def _handle(request):
 def main():
     _log("HD520 companion MCP server started (stdio).")
     _log("Token rule: every tools/call needs a token field matching env HD520_API_TOKEN.")
-    _log("Meta rule: provider meta works only when HD520_META_API_KEY is set.")
+    _log("Meta rule: provider meta works only when a Meta key is configured (Settings page, HD520_META_API_KEY, or META_API_KEY).")
     for line in sys.stdin:
         line = line.strip()
         if not line:

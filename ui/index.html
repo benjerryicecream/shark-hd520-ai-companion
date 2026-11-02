@@ -75,7 +75,7 @@
   <label for="provider">Provider</label>
   <select id="provider">
     <option value="local" selected>Local (no model call)</option>
-    <option value="meta">Meta (needs a server key, else refused)</option>
+    <option value="meta">Meta (needs a key in Settings or server env, else refused)</option>
   </select>
 
   <label for="jobName">Job name (optional, used in the saved file name)</label>
@@ -84,11 +84,24 @@
   <label for="caller">Caller name (optional)</label>
   <input id="caller" type="text" value="ui">
 
-  <label for="token">API token (kept in this tab only, never saved into a job or export)</label>
-  <input id="token" type="password" autocomplete="off" placeholder="Paste the server token here">
+  <div id="tokenRow">
+    <label for="token">API token (kept in this tab only, never saved into a job or export)</label>
+    <input id="token" type="password" autocomplete="off" placeholder="Paste the server token here">
+  </div>
 
   <button type="submit" id="generateBtn">Generate</button>
 </form>
+
+<div class="box noprint" id="settingsBox">
+  <h2>Settings</h2>
+  <p id="metaKeyStatus">Meta key: checking...</p>
+  <label for="metaKey">Meta API key (stored on this machine only, never in a job or export)</label>
+  <input id="metaKey" type="password" autocomplete="off" placeholder="Paste your dev.meta.ai key here">
+  <button type="button" id="saveKeyBtn">Save Meta key</button>
+  <button type="button" id="clearKeyBtn">Remove Meta key</button>
+  <p id="settingsStatus"></p>
+  <button type="button" id="quitBtn" style="display:none">Quit app</button>
+</div>
 
 <div id="status" role="status"></div>
 
@@ -141,8 +154,15 @@
 <script>
 (function () {
   var tokenField = document.getElementById('token');
-  var saved = sessionStorage.getItem('hd520_api_token');
-  if (saved) { tokenField.value = saved; }
+  if (window.HD520_TOKEN) {
+    tokenField.value = window.HD520_TOKEN;
+    sessionStorage.setItem('hd520_api_token', window.HD520_TOKEN);
+    var tokenRow = document.getElementById('tokenRow');
+    if (tokenRow) { tokenRow.style.display = 'none'; }
+  } else {
+    var saved = sessionStorage.getItem('hd520_api_token');
+    if (saved) { tokenField.value = saved; }
+  }
 
   var currentJob = null;
 
@@ -296,6 +316,88 @@
     a.remove();
     URL.revokeObjectURL(url);
   });
+
+  function apiToken() { return tokenField.value.trim(); }
+
+  function refreshSettings() {
+    var token = apiToken();
+    var statusEl = document.getElementById('metaKeyStatus');
+    if (!token) {
+      statusEl.textContent = 'Meta key: enter the API token above first.';
+      return;
+    }
+    fetch('/api/settings', { headers: { 'X-API-Token': token } }).then(function (resp) {
+      return resp.json().then(function (data) {
+        if (!resp.ok) { throw new Error(data.error || ('Request failed: ' + resp.status)); }
+        return data;
+      });
+    }).then(function (data) {
+      statusEl.textContent = data.meta_configured
+        ? ('Meta key: set (' + data.meta_source + ').')
+        : 'Meta key: not set. Meta briefs will be refused until a key is saved.';
+      if (data.desktop) { document.getElementById('quitBtn').style.display = ''; }
+    }).catch(function (err) {
+      statusEl.textContent = 'Meta key status unavailable: ' + err.message;
+    });
+  }
+
+  tokenField.addEventListener('change', refreshSettings);
+
+  document.getElementById('saveKeyBtn').addEventListener('click', function () {
+    var token = apiToken();
+    var key = document.getElementById('metaKey').value.trim();
+    var el = document.getElementById('settingsStatus');
+    if (!token) { el.textContent = 'Enter the API token first.'; return; }
+    if (!key) { el.textContent = 'Paste a Meta key first.'; return; }
+    fetch('/api/settings/meta-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
+      body: JSON.stringify({ key: key })
+    }).then(function (resp) {
+      return resp.json().then(function (data) {
+        if (!resp.ok) { throw new Error(data.error || ('Request failed: ' + resp.status)); }
+        return data;
+      });
+    }).then(function (data) {
+      document.getElementById('metaKey').value = '';
+      el.textContent = 'Meta key saved (' + data.meta_source + ').';
+      refreshSettings();
+    }).catch(function (err) { el.textContent = 'Error: ' + err.message; });
+  });
+
+  document.getElementById('clearKeyBtn').addEventListener('click', function () {
+    var token = apiToken();
+    var el = document.getElementById('settingsStatus');
+    if (!token) { el.textContent = 'Enter the API token first.'; return; }
+    fetch('/api/settings/meta-key', {
+      method: 'DELETE',
+      headers: { 'X-API-Token': token }
+    }).then(function (resp) {
+      return resp.json().then(function (data) {
+        if (!resp.ok) { throw new Error(data.error || ('Request failed: ' + resp.status)); }
+        return data;
+      });
+    }).then(function (data) {
+      el.textContent = data.meta_configured
+        ? 'Stored key removed; an environment key is still configured.'
+        : 'Meta key removed.';
+      refreshSettings();
+    }).catch(function (err) { el.textContent = 'Error: ' + err.message; });
+  });
+
+  document.getElementById('quitBtn').addEventListener('click', function () {
+    var el = document.getElementById('settingsStatus');
+    fetch('/api/shutdown', {
+      method: 'POST',
+      headers: { 'X-API-Token': apiToken() }
+    }).then(function () {
+      el.textContent = 'App is quitting. You can close this tab.';
+    }).catch(function () {
+      el.textContent = 'App is quitting. You can close this tab.';
+    });
+  });
+
+  refreshSettings();
 })();
 </script>
 </body>

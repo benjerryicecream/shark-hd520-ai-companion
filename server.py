@@ -6,8 +6,12 @@ no public binding, no port forwarding. No machine-control endpoints.
 Endpoints:
   GET  /health
   GET  /  (serves ui/index.html)
+  GET  /api/settings (token required; reports Meta key status, never the key)
   POST /api/generate_cabinet
   POST /api/check_job_hd520
+  POST /api/settings/meta-key (token required; the one body that may carry a key)
+  DELETE /api/settings/meta-key (token required; removes the stored key)
+  POST /api/shutdown (desktop mode only, token required; quits the app)
 
 Auth: every /api/* call requires header X-API-Token or
 Authorization: Bearer matching env HD520_API_TOKEN. If that variable
@@ -15,14 +19,31 @@ is unset at startup, a random token is generated, printed once to
 stdout with a clear label, and required from then on.
 
 Meta rule: provider "meta" is used only when the caller requests it
-AND env HD520_META_API_KEY is set. At startup, when HD520_META_API_KEY
-is set, it is mapped to the engine's META_API_KEY variable so the
-engine Meta path uses it. When provider "meta" is requested but no
-Meta key is set, the server returns HTTP 400 and never silently runs
-the local parser and labels it Meta.
+AND a Meta key is configured. The effective key, in precedence
+order, is: a key stored through the Settings page (see keystore.py:
+Windows Credential Manager, else a 0600 file under the per-user
+config dir), env HD520_META_API_KEY, env META_API_KEY. The resolved
+key is mapped to the engine's META_API_KEY variable before every
+Meta call, so a key saved through Settings works without a restart.
+When provider "meta" is requested but no Meta key is configured, the
+server returns HTTP 400 and never silently runs the local parser and
+labels it Meta.
 
-No API key is ever accepted in a request body. No token or key is
-ever written to a job file, a log line, a cut list, or DXF output.
+The one exception to "no key in a request body": POST
+/api/settings/meta-key accepts a Meta key in its body, localhost
+only, with a valid API token. That is the Settings page's save path.
+Every other endpoint still refuses api_key style body fields. No
+token or key is ever written to a job file, a log line, a cut list,
+or DXF output.
+
+Desktop mode (--desktop, or the packaged exe): the UI page is served
+with the API token injected, so the desktop user never types it.
+That trade is deliberate and single-user only: the server still
+binds 127.0.0.1, and the token still gates every API call from any
+other client. Desktop mode also serves POST /api/shutdown (token
+required), which quits the app, and stores jobs under the per-user
+data dir instead of the app folder (the packaged exe runs from a
+temporary extraction dir, so the app folder is not writable).
 """
 
 import hmac
@@ -31,6 +52,7 @@ import os
 import re
 import secrets
 import sys
+import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -38,10 +60,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from engine import check_job_hd520, generate_cabinet, scan_for_secrets
+from keystore import (delete_meta_key, get_meta_key, meta_key_source,
+                      set_meta_key, user_data_dir)
 
 APP_ROOT = Path(__file__).resolve().parent
-JOBS_DIR = APP_ROOT / "jobs"
 UI_FILE = APP_ROOT / "ui" / "index.html"
+DESKTOP_MODE = "--desktop" in sys.argv or os.environ.get("HD520_DESKTOP") == "1"
+FROZEN = bool(getattr(sys, "frozen", False))
+# In desktop mode or in the packaged exe, jobs go under the per-user
+# data dir: the exe runs from a temporary extraction dir that is
+# wiped on exit, so the app folder is not a safe job store.
+JOBS_DIR = ((user_data_dir() / "jobs") if (DESKTOP_MODE or FROZEN)
+            else (APP_ROOT / "jobs"))
 HOST = "127.0.0.1"
 PORT = 8791
 VERSION = "1.0-phase1"
@@ -64,18 +94,55 @@ def _load_token():
 
 API_TOKEN, _TOKEN_GENERATED = _load_token()
 
-META_KEY = os.environ.get("HD520_META_API_KEY")
-if META_KEY:
-    # The engine reads META_API_KEY (or META_MODEL_API_KEY). Map the
-    # companion variable to the engine variable once at startup.
-    # The key value is never printed or logged.
-    os.environ["META_API_KEY"] = META_KEY
+def _resolve_meta_key():
+    """Effective Meta key: stored key, then original env keys.
+
+    The original env values are captured at import, because
+    _apply_meta_key writes the resolved key into os.environ for the
+    engine: reading the live META_API_KEY back would mistake a saved
+    (and later deleted) key for an environment key.
+    """
+    stored = get_meta_key()
+    if stored:
+        return stored
+    return _HD520_ENV_KEY or _META_ENV_KEY
+
+
+def _apply_meta_key():
+    """Map the resolved key onto the engine variable. Returns key or None."""
+    key = _resolve_meta_key()
+    if key:
+        os.environ["META_API_KEY"] = key
+    elif _META_ENV_KEY:
+        os.environ["META_API_KEY"] = _META_ENV_KEY
+    else:
+        os.environ.pop("META_API_KEY", None)
+    return key
+
+
+def _meta_source():
+    """Where the effective key comes from, without revealing it."""
+    source = meta_key_source()
+    if source:
+        return "stored-" + source
+    if _HD520_ENV_KEY or _META_ENV_KEY:
+        return "env"
+    return "none"
+
+
+# Original environment keys, captured before _apply_meta_key ever
+# writes to os.environ. See _resolve_meta_key.
+_HD520_ENV_KEY = os.environ.get("HD520_META_API_KEY")
+_META_ENV_KEY = os.environ.get("META_API_KEY")
+
+META_KEY = _apply_meta_key()
 
 
 def _secrets_to_scan():
     values = [API_TOKEN]
-    if META_KEY:
-        values.append(META_KEY)
+    key = _resolve_meta_key()
+    if key:
+        values.append(key)
     return [v for v in values if v]
 
 
@@ -192,18 +259,74 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             self._send_json(200, {"ok": True, "app": "hd520-companion",
-                                  "version": VERSION})
+                                  "version": VERSION,
+                                  "desktop": DESKTOP_MODE})
+            return
+        if self.path == "/api/settings":
+            if not self._auth_ok():
+                self._send_json(401, {"error": "Missing or wrong API token."})
+                return
+            self._send_json(200, {
+                "meta_configured": _resolve_meta_key() is not None,
+                "meta_source": _meta_source(),
+                "desktop": DESKTOP_MODE,
+                "version": VERSION,
+            })
             return
         if self.path == "/":
             if not UI_FILE.exists():
                 self._send_json(500, {"error": "UI file is missing."})
                 return
-            self._send_text(200, UI_FILE.read_text(encoding="utf-8"),
-                            "text/html; charset=utf-8")
+            page = UI_FILE.read_text(encoding="utf-8")
+            if DESKTOP_MODE:
+                # Single-user desktop trade, documented in the module
+                # docstring: the page is served to localhost only, and
+                # the token still gates every API call from any other
+                # client. The token is URL-safe, but escape it anyway.
+                safe = API_TOKEN.replace("\\", "\\\\").replace('"', '\\"')
+                page = page.replace(
+                    "</body>",
+                    '<script>window.HD520_TOKEN = "%s";</script></body>'
+                    % safe, 1)
+            self._send_text(200, page, "text/html; charset=utf-8")
             return
         self._send_json(404, {"error": "Not found."})
 
     def do_POST(self):
+        if self.path == "/api/settings/meta-key":
+            if not self._auth_ok():
+                self._send_json(401, {"error": "Missing or wrong API token."})
+                return
+            body, error = self._read_json_body()
+            if error is not None or not isinstance(body, dict):
+                self._send_json(400, {"error": error or "Request body must be a JSON object."})
+                return
+            key = body.get("key")
+            if not isinstance(key, str) or not key.strip() or len(key) > 1000:
+                self._send_json(400, {"error": "Body must contain a non-empty key string."})
+                return
+            try:
+                set_meta_key(key)
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+            _apply_meta_key()
+            sys.stderr.write("Settings: Meta key saved (source: %s).\n"
+                             % _meta_source())
+            self._send_json(200, {"meta_configured": True,
+                                  "meta_source": _meta_source()})
+            return
+        if self.path == "/api/shutdown":
+            if not DESKTOP_MODE:
+                self._send_json(404, {"error": "Not found."})
+                return
+            if not self._auth_ok():
+                self._send_json(401, {"error": "Missing or wrong API token."})
+                return
+            self._send_json(200, {"ok": True})
+            sys.stderr.write("Desktop shutdown requested from the UI.\n")
+            threading.Timer(0.3, lambda: os._exit(0)).start()
+            return
         if self.path not in ("/api/generate_cabinet", "/api/check_job_hd520"):
             self._send_json(404, {"error": "Not found."})
             return
@@ -226,9 +349,9 @@ class Handler(BaseHTTPRequestHandler):
             _log_call(body.get("caller") if isinstance(body.get("caller"), str) else "unknown",
                       tool, None, None, None, None, "400")
             self._send_json(400, {"error": "API keys and tokens are not "
-                              "accepted in request bodies. Send the token "
-                              "in the X-API-Token header and keep keys in "
-                              "server environment only."})
+                              "accepted in tool request bodies. Send the token "
+                              "in the X-API-Token header, and store a Meta key "
+                              "through POST /api/settings/meta-key."})
             return
         caller = body.get("caller") if isinstance(body.get("caller"), str) else "unknown"
         try:
@@ -238,12 +361,14 @@ class Handler(BaseHTTPRequestHandler):
                     _log_call(caller, tool, None, None, None, None, "400")
                     self._send_json(400, {"error": "Body must contain a params object."})
                     return
-                if params.get("provider") == "meta" and not META_KEY:
-                    _log_call(caller, tool, None, "meta", None, None, "400")
-                    self._send_json(400, {"error": "Meta is not configured. "
-                                      "Set HD520_META_API_KEY on the server "
-                                      "and retry, or use provider local."})
-                    return
+                if params.get("provider") == "meta":
+                    if not _apply_meta_key():
+                        _log_call(caller, tool, None, "meta", None, None, "400")
+                        self._send_json(400, {"error": "Meta is not configured. "
+                                          "Save a key on the Settings page or set "
+                                          "HD520_META_API_KEY on the server "
+                                          "and retry, or use provider local."})
+                        return
                 job = generate_cabinet(params)
                 provider = (job.get("provider_record") or {}).get("provider")
                 model = (job.get("provider_record") or {}).get("model")
@@ -287,6 +412,21 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(500, {"error": "Internal server error."})
             return
 
+    def do_DELETE(self):
+        if self.path == "/api/settings/meta-key":
+            if not self._auth_ok():
+                self._send_json(401, {"error": "Missing or wrong API token."})
+                return
+            delete_meta_key()
+            _apply_meta_key()
+            sys.stderr.write("Settings: Meta key removed.\n")
+            self._send_json(200, {
+                "meta_configured": _resolve_meta_key() is not None,
+                "meta_source": _meta_source(),
+            })
+            return
+        self._send_json(404, {"error": "Not found."})
+
 
 def main():
     server = ThreadingHTTPServer((HOST, PORT), Handler)
@@ -300,9 +440,15 @@ def main():
         print("Token rule: a token was generated at startup (printed once "
               "above). Every /api call needs it in header X-API-Token or "
               "Authorization Bearer.")
-    print("Meta rule: provider meta works only when HD520_META_API_KEY is "
-          "set; otherwise a meta request returns HTTP 400.")
-    print("Stop: Ctrl-C.")
+    print("Meta rule: provider meta works only when a Meta key is "
+          "configured (Settings page, HD520_META_API_KEY, or "
+          "META_API_KEY); otherwise a meta request returns HTTP 400.")
+    if DESKTOP_MODE:
+        print("Desktop mode: the UI page is served with the API token "
+              "injected (localhost only); quit from the UI Quit button. "
+              "Jobs are stored under the per-user data dir, not the app "
+              "folder.")
+    print("Stop: Ctrl-C (or the UI Quit button in desktop mode).")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

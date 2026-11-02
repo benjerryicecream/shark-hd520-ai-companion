@@ -2,3 +2,5 @@ jobs/
 __pycache__/
 *.pyc
 *.muse-github-snapshot-sync.json*
+build/
+dist/
