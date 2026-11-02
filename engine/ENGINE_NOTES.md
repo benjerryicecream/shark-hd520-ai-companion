@@ -158,7 +158,7 @@ The back panel (33.094 x 29.547) fits neither bed orientation
    that fit neither bed orientation are tiled, and only along the
    exceeding dimension.
 
-## Layouts (all five implemented)
+## Layouts (all six implemented)
 
 - doors: carcass 6 + 2 doors (door width = (W - 0.25) / 2,
   height = box height - 0.25). 8 panels at 34 in wide.
@@ -176,6 +176,20 @@ The back panel (33.094 x 29.547) fits neither bed orientation
   overall_height_in it can be derived from) raises ValueError
   asking for height_box_in. No default pantry envelope is used,
   and the unverified 35 x 86.5 x 18 envelope is never used.
+- wall: carcass 6 + shelves + doors, hangs, no toe kick.
+  Overall height is box height; toe-kick params resolve to 0
+  and the cut list says "hangs, no toe kick" instead of the
+  ladder-pack block. Doors: 1 door under 24 in wide, 2 doors
+  at 24 in and over (same door formulas as doors). Shelves:
+  1 shelf at 24 in high or under, 2 shelves over 24 in
+  (same shelf construction as pantry: depth - 1, front edge).
+  Both the door-count threshold and the shelf-count rule are
+  PROVISIONAL shop rules, not numbers from the drawings.
+  Wall depth comes from params only; the drawing labels give
+  widths and heights (W3621, W3021, W17.7539R, W29.539,
+  W18.539R) but no depth. Covers the five rectangular wall
+  cabinets. Stepped-corner WSC2439R and microwave WMF3018 are
+  separate modules, not covered by wall.
 
 ## Preflight rules (deterministic, model-free)
 

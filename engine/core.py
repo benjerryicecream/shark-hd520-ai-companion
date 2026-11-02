@@ -54,7 +54,7 @@ PROTOTYPE_SLIDE_CLEARANCE_IN = 0.5
 PIN_GRID_MM = 5
 META_BASE_URL = "https://api.meta.ai/v1"
 META_MODEL = "muse-spark-1.3"
-LAYOUTS = ("doors", "drawers-over-doors", "drawer-bank", "sink-base", "pantry")
+LAYOUTS = ("doors", "drawers-over-doors", "drawer-bank", "sink-base", "pantry", "wall")
 
 # ---------------------------------------------------------------- tools
 
@@ -194,6 +194,28 @@ def _build_parts(params):
         for part in parts:
             if part["id"] == "back":
                 part["height_in"] = round(box_h - 2.0 * t, 6)
+    elif layout == "wall":
+        # Wall cabinet: hangs, no toe kick, no drawers, no slides.
+        # Doors: one door under 24 in wide, two doors at 24 in and over.
+        # Shelves: one shelf at 24 in high or under, two shelves over
+        # 24 in. Both rules are PROVISIONAL shop rules, not numbers
+        # from the drawings; the drawings give widths and heights only.
+        inner_w = width - 2.0 * t
+        shelf_count = 1 if box_h <= 24.0 else 2
+        for i in range(1, shelf_count + 1):
+            parts.append(_part("shelf-%d" % i, "Shelf %d" % i, "carcass",
+                               material, t, inner_w, depth - 1.0,
+                               "horizontal", "front edge"))
+        door_h = box_h - 0.25
+        if width < 24.0:
+            parts.append(_part("door", "Door", "door", material, t,
+                               front_w, door_h, "vertical", "all edges"))
+        else:
+            door_w = (width - 0.25) / 2.0
+            parts.append(_part("door-left", "Door left", "door", material, t,
+                               door_w, door_h, "vertical", "all edges"))
+            parts.append(_part("door-right", "Door right", "door", material, t,
+                               door_w, door_h, "vertical", "all edges"))
     return parts
 
 
@@ -654,14 +676,17 @@ def export_cut_list(job):
     out.append("Material: %s, %s in thick"
                % (params.get("material_name", ""),
                   _fmt(params.get("material_thickness_in", 0))))
-    out.append("Toe kick: separate ladder-pack base, %s in high, %s in board, "
-               "recess %s in PROVISIONAL (one pantry note only, not a "
-               "confirmed general default)"
-               % (_fmt(params.get("toe_kick_height_in",
-                                  DEFAULT_TOE_KICK_HEIGHT_IN)),
-                  _fmt(DEFAULT_TOE_KICK_BOARD_IN),
-                  _fmt(params.get("toe_kick_recess_in",
-                                  PROVISIONAL_TOE_KICK_RECESS_IN))))
+    if params.get("layout") == "wall":
+        out.append("Wall cabinet: hangs, no toe kick.")
+    else:
+        out.append("Toe kick: separate ladder-pack base, %s in high, %s in board, "
+                   "recess %s in PROVISIONAL (one pantry note only, not a "
+                   "confirmed general default)"
+                   % (_fmt(params.get("toe_kick_height_in",
+                                      DEFAULT_TOE_KICK_HEIGHT_IN)),
+                      _fmt(DEFAULT_TOE_KICK_BOARD_IN),
+                      _fmt(params.get("toe_kick_recess_in",
+                                      PROVISIONAL_TOE_KICK_RECESS_IN))))
     out.append("Pin grid: %s"
                % ("ON, 5 mm grid" if params.get("pin_grid_enabled")
                   else "OFF"))
@@ -768,6 +793,14 @@ def generate_cabinet(params):
     for key in ("clamps_enabled",):
         if key in raw:
             resolved[key] = raw[key]
+    if layout == "wall":
+        # Wall cabinets hang: no toe kick, so overall height is box
+        # height and the toe-kick values are not applicable.
+        resolved["overall_height_in"] = box_h
+        resolved["toe_kick_height_in"] = 0.0
+        resolved["toe_kick_recess_in"] = 0.0
+        if "toe_kick_recess_in" in resolved["provisional"]:
+            resolved["provisional"].remove("toe_kick_recess_in")
     if resolved["width_in"] <= 0 or resolved["depth_in"] <= 0 \
             or resolved["height_box_in"] <= 0 \
             or resolved["material_thickness_in"] <= 0 \
@@ -841,7 +874,9 @@ def parse_brief_local(brief_text):
         depth = _find_number(_NUMBER + r"\s*(?:in|inch|inches|\")\s*deep", text)
     if depth is not None:
         params["depth_in"] = depth
-    if "drawer bank" in text or "drawer-bank" in text or "drawerbank" in text:
+    if "wall" in text:
+        params["layout"] = "wall"
+    elif "drawer bank" in text or "drawer-bank" in text or "drawerbank" in text:
         params["layout"] = "drawer-bank"
     elif "drawers over doors" in text or "drawers-over-doors" in text:
         params["layout"] = "drawers-over-doors"
@@ -883,7 +918,7 @@ def _build_meta_request(brief_text, base_url, model):
         "You are a cabinet parameter extractor. Reply with JSON only, no "
         "other text. Keys: width_in, height_box_in, depth_in, layout "
         "(one of doors, drawers-over-doors, drawer-bank, sink-base, "
-        "pantry), material_thickness_in, material_name, "
+        "pantry, wall), material_thickness_in, material_name, "
         "pin_grid_enabled, drawer_count. Use numbers for dimensions in "
         "inches."
     )

@@ -82,22 +82,42 @@ is presented as locked unless it says so.
   runs log to desktop.log. The Chrome app-mode path is untested here
   (no Chrome on this VM).
 
-## Visual layout picker (2026-11-02, pending push)
-- The layout dropdown is replaced by five picture cards, each with a
+## Visual layout picker (2026-11-02, pushed as commit 4)
+- The layout dropdown is replaced by picture cards, each with a
   front-elevation SVG diagram of what the layout builds: doors (two
   doors), drawers over doors (one drawer, two doors), drawer bank
   (two drawers, the engine default count), sink base (sink basin
-  outline, false front, two doors), pantry (tall, two doors). The
+  outline, false front, two doors), pantry (tall, two doors), wall
+  (wide short cabinet, two doors, hanging line above). The
   diagrams match the engine's actual divisions.
 - A live schematic front view below the picker redraws from the
   width, box height, and selected layout inputs. It is labeled as
   schematic: gaps and hardware are not shown. Print output is
   unchanged, because the form (picker and preview included) is
   hidden in print.
-- The Windows vault path (Credential Manager via ctypes) is
-  untested here: this VM is Linux, so only the file fallback was
-  exercised. The first Windows run should confirm the Settings page
-  reports source stored-vault.
+- The Windows vault path (Credential Manager via ctypes) was
+  confirmed on Windows 2026-11-02: Hermes saved the Meta key and
+  Settings reported source stored-vault.
+
+## Wall cabinets (2026-11-02, pending push)
+- New layout "wall": carcass 6 + shelves + doors, hangs, no toe
+  kick. Overall height resolves to box height; toe-kick params
+  resolve to 0; the cut list says "hangs, no toe kick" instead
+  of the ladder-pack block. Covers the five rectangular wall
+  cabinets from the 2017 drawings: W3621, W3021, W17.7539R,
+  W29.539, W18.539R.
+- PROVISIONAL rules, not from the drawings: doors 1 under 24 in
+  wide, 2 at 24 in and over; shelves 1 at 24 in high or under,
+  2 over 24 in. Wall depth comes from params only: the drawing
+  labels give widths and heights but no depth, so the user
+  enters it from tape (no default invented).
+- NOT covered by wall: stepped-corner WSC2439R (corner
+  geometry) and microwave WMF3018 (cabinet with an opening).
+  Both are separate modules, still to build.
+- Brief parsing: local parser maps the word "wall" to layout
+  wall; the Meta extractor prompt lists wall among layouts.
+  Live Meta brief parsing for a wall cabinet is still unproven
+  (needs a run on the desktop with the vault key).
 
 ## Desktop work still to do
 

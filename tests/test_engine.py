@@ -218,7 +218,7 @@ class TestPreflight(unittest.TestCase):
 class TestLayouts(unittest.TestCase):
     def test_all_layouts_pass(self):
         for layout in ("doors", "drawers-over-doors", "drawer-bank",
-                       "sink-base"):
+                       "sink-base", "wall"):
             job = generate_cabinet({"width_in": 34, "layout": layout})
             self.assertTrue(job["preflight"]["passed"], layout)
             self.assertGreater(len(job["parts"]), 0, layout)
@@ -314,6 +314,45 @@ class TestTools(unittest.TestCase):
         self.assertEqual(tapered["type"], "Tapered")
         self.assertIn("ambiguous", " ".join(tapered["flags"]))
         self.assertIn("no plywood data", data["cutting_data"])
+
+
+class TestWall(unittest.TestCase):
+    def test_wall_wide_two_doors_one_shelf(self):
+        # W3621: 36 in wide, 21 in high, 12 in deep.
+        job = generate_cabinet({"width_in": 36, "height_box_in": 21,
+                                "depth_in": 12, "layout": "wall"})
+        self.assertTrue(job["preflight"]["passed"])
+        ids = [p["id"] for p in job["parts"]]
+        self.assertIn("door-left", ids)
+        self.assertIn("door-right", ids)
+        self.assertNotIn("door", ids)
+        self.assertEqual([i for i in ids if i.startswith("shelf")],
+                         ["shelf-1"])
+        self.assertNotIn("drawer", " ".join(ids))
+        self.assertEqual(job["params"]["overall_height_in"], 21)
+        self.assertEqual(job["params"]["toe_kick_height_in"], 0.0)
+
+    def test_wall_narrow_one_door_two_shelves(self):
+        # W18.539R: 18.5 in wide, 39 in high, 12 in deep.
+        job = generate_cabinet({"width_in": 18.5, "height_box_in": 39,
+                                "depth_in": 12, "layout": "wall"})
+        self.assertTrue(job["preflight"]["passed"])
+        ids = [p["id"] for p in job["parts"]]
+        self.assertIn("door", ids)
+        self.assertNotIn("door-left", ids)
+        self.assertEqual([i for i in ids if i.startswith("shelf")],
+                         ["shelf-1", "shelf-2"])
+
+    def test_wall_cut_list_has_no_toe_kick(self):
+        job = generate_cabinet({"width_in": 30, "height_box_in": 21,
+                                "depth_in": 12, "layout": "wall"})
+        text = export_cut_list(job)
+        self.assertIn("hangs, no toe kick", text)
+        self.assertNotIn("ladder-pack", text)
+
+    def test_wall_brief_keyword(self):
+        params = parse_brief_local("36 inch wall cabinet, 21 high, 12 deep")
+        self.assertEqual(params.get("layout"), "wall")
 
 
 if __name__ == "__main__":
