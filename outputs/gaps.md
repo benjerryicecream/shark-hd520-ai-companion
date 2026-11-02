@@ -119,6 +119,25 @@ is presented as locked unless it says so.
   Live Meta brief parsing for a wall cabinet is still unproven
   (needs a run on the desktop with the vault key).
 
+## Provider honesty fix (2026-11-02, pending push)
+- Local never runs a model: there is no local LLM backend in
+  this app, and none is needed. The local path is a keyword
+  parser plus the deterministic engine. The provider record
+  used to say model "local", which read as if a local model
+  ran. It now says model "none", and the UI provider record
+  for a local job reads "no model call" with that explanation.
+- The provider dropdown now preselects Meta when a key is
+  saved (Settings reports meta_configured), and Local when no
+  key is saved. Before this, a fresh page always defaulted to
+  Local even with a key in the vault, so a saved key alone
+  never switched providers.
+- The page header now says the Meta part out loud: the page
+  talks to the server on this machine only, and with provider
+  Meta that server sends the brief to Meta's API.
+- Mirror gap still open: with provider Meta selected but no
+  brief typed, the record says Meta even though no call ran,
+  because there is nothing to parse. Documented, not yet fixed.
+
 ## Desktop work still to do
 
 - VCarve round-trip: import the demo DXF into VCarve Pro 11 and

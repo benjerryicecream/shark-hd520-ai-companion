@@ -817,7 +817,7 @@ def generate_cabinet(params):
         "nesting": nesting,
         "provider_record": {
             "provider": provider,
-            "model": META_MODEL if provider == "meta" else "local",
+            "model": META_MODEL if provider == "meta" else "none",
         },
     }
     if raw.get("job_name"):

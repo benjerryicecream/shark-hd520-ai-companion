@@ -355,5 +355,15 @@ class TestWall(unittest.TestCase):
         self.assertEqual(params.get("layout"), "wall")
 
 
+class TestProviderRecord(unittest.TestCase):
+    def test_local_job_records_no_model(self):
+        # Local never runs a model: no local LLM backend exists or
+        # is needed. The record must say none, not "local" as if a
+        # local model ran.
+        job = generate_cabinet({"width_in": 34, "layout": "drawer-bank"})
+        self.assertEqual(job["provider_record"]["provider"], "local")
+        self.assertEqual(job["provider_record"]["model"], "none")
+
+
 if __name__ == "__main__":
     unittest.main()

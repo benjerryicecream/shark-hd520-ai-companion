@@ -52,7 +52,7 @@
 </head>
 <body>
 <h1>HD520 Cabinet Companion</h1>
-<p>Generate a frameless cabinet job for the Shark HD520. This page talks to the local server only. No machine control exists in this app.</p>
+<p>Generate a frameless cabinet job for the Shark HD520. This page talks to the server on this machine only. With provider Meta, that server sends your brief to Meta's API. No machine control exists in this app.</p>
 
 <form id="cabForm">
   <label for="brief">Brief (plain words, optional)</label>
@@ -246,9 +246,14 @@
   function render(job) {
     document.getElementById('results').style.display = 'block';
     var rec = job.provider_record || {};
-    document.getElementById('providerText').textContent =
-      'Provider: ' + (rec.provider || 'unknown') + ', model: ' + (rec.model || 'unknown') +
-      '. This is the provider that actually ran.';
+    if (rec.provider === 'local') {
+      document.getElementById('providerText').textContent =
+        'Provider: local (no model call). The brief was parsed by keyword rules on this machine, not by a model.';
+    } else {
+      document.getElementById('providerText').textContent =
+        'Provider: ' + (rec.provider || 'unknown') + ', model: ' + (rec.model || 'unknown') +
+        '. This is the provider that actually ran.';
+    }
 
     var prov = (job.params && job.params.provisional) || [];
     var list = document.getElementById('provisionalList');
@@ -364,6 +369,7 @@
       statusEl.textContent = data.meta_configured
         ? ('Meta key: set (' + data.meta_source + ').')
         : 'Meta key: not set. Meta briefs will be refused until a key is saved.';
+      document.getElementById('provider').value = data.meta_configured ? 'meta' : 'local';
       if (data.desktop) { document.getElementById('quitBtn').style.display = ''; }
     }).catch(function (err) {
       statusEl.textContent = 'Meta key status unavailable: ' + err.message;
