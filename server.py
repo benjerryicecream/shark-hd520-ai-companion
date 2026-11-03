@@ -57,6 +57,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
+from urllib.request import urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -473,19 +474,46 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class CompanionHTTPServer(ThreadingHTTPServer):
-    # ThreadingHTTPServer inherits allow_reuse_address=1, which on
-    # Windows lets a SECOND instance bind the same port: two desktop
-    # processes were found listening on 8791 at once, each with its
-    # own random token, so UI calls failed auth at random depending
-    # on which process took the connection. Refuse the second bind.
-    allow_reuse_address = False
+    # Address reuse stays ON so a restart right after a stop is not
+    # blocked for ~60s by server-side TIME_WAIT sockets on the port.
+    # The "no two live copies" rule is enforced by the /health probe
+    # in main() instead of by the bind: bind-time refusal cannot tell
+    # a TIME_WAIT socket from a live listener.
+    allow_reuse_address = True
     daemon_threads = True
 
 
+def _live_server_answering(health_url=None, timeout=1.0):
+    """True only when a live HD520 companion answers /health.
+
+    A refused connection (no listener), a timeout, a non-200 reply,
+    or some other app's 200 all return False, so a restart after a
+    stop (only TIME_WAIT sockets left) proceeds to bind.
+    """
+    url = health_url or ("http://%s:%d/health" % (HOST, PORT))
+    try:
+        with urlopen(url, timeout=timeout) as resp:
+            if resp.status != 200:
+                return False
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return False
+    return isinstance(payload, dict) \
+        and payload.get("ok") is True \
+        and payload.get("app") == "hd520-companion"
+
+
 def main():
+    if _live_server_answering():
+        sys.stderr.write(
+            "HD520 companion: another copy is already running on port "
+            "%d. Close it and retry, or use the copy that is up.\n" % PORT)
+        raise SystemExit(1)
     try:
         server = CompanionHTTPServer((HOST, PORT), Handler)
     except OSError:
+        # A foreign listener, or one that started between the probe
+        # and this bind.
         sys.stderr.write(
             "HD520 companion: port %d is already in use. Another copy "
             "of the app is probably running; close it and retry.\n" % PORT)

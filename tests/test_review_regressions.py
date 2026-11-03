@@ -8,8 +8,10 @@ import copy
 import io
 import os
 import sys
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(APP_ROOT))
@@ -158,16 +160,34 @@ class TestServerHelpers(unittest.TestCase):
         self.assertIsNone(body)
         self.assertIsNotNone(error)
 
-    def test_second_bind_refused(self):
-        first = self.server.CompanionHTTPServer(("127.0.0.1", 0),
-                                                self.server.Handler)
+    def test_probe_detects_live_server_then_rebinds_after_stop(self):
+        # The single-bind guard is the /health probe, not the bind:
+        # reuse stays on so TIME_WAIT cannot block a fast restart.
+        self.assertTrue(self.server.CompanionHTTPServer.allow_reuse_address)
+        srv = self.server.CompanionHTTPServer(("127.0.0.1", 0),
+                                              self.server.Handler)
+        port = srv.server_address[1]
+        url = "http://127.0.0.1:%d/health" % port
+        thread = threading.Thread(target=srv.serve_forever, daemon=True)
+        thread.start()
         try:
-            port = first.server_address[1]
-            with self.assertRaises(OSError):
-                self.server.CompanionHTTPServer(("127.0.0.1", port),
-                                                self.server.Handler)
+            self.assertTrue(self.server._live_server_answering(url))
         finally:
-            first.server_close()
+            srv.shutdown()
+            srv.server_close()
+            thread.join(timeout=5)
+        # Nothing answers now: the probe clears a restart, and the
+        # port rebinds immediately (the TIME_WAIT regression).
+        self.assertFalse(self.server._live_server_answering(url))
+        rebound = self.server.CompanionHTTPServer(("127.0.0.1", port),
+                                                  self.server.Handler)
+        rebound.server_close()
+
+    def test_main_exits_when_live_server_detected(self):
+        with mock.patch.object(self.server, "_live_server_answering",
+                               return_value=True):
+            with self.assertRaises(SystemExit):
+                self.server.main()
 
     def test_save_job_names_unique_within_same_second(self):
         job = {"job_id": "x"}
