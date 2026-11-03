@@ -35,6 +35,7 @@ import os
 import re
 import secrets
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -68,6 +69,20 @@ def _load_token():
 
 
 API_TOKEN = _load_token()
+
+_JOB_WRITE_LOCK = threading.Lock()
+
+
+def _tokens_match(presented, expected):
+    """Constant-time token compare that never raises on odd input.
+
+    hmac.compare_digest on str rejects non-ASCII, so a token with an
+    accented character used to raise instead of returning auth error.
+    """
+    if not isinstance(presented, str) or not presented:
+        return False
+    return hmac.compare_digest(presented.encode("utf-8"),
+                               str(expected).encode("utf-8"))
 
 def _resolve_meta_key():
     """Effective Meta key: stored key, then original env keys.
@@ -125,17 +140,22 @@ def _log_call(caller, tool, job_id, provider, model, passed, status):
         "preflight_passed": passed,
         "status": status,
     }
-    with open(JOBS_DIR / "api_log.jsonl", "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record) + "\n")
+    with _JOB_WRITE_LOCK:
+        with open(JOBS_DIR / "api_log.jsonl", "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
 
 
 def _save_job(job, params):
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     slug = _slug(params.get("job_name") or params.get("layout"), "job")
-    path = JOBS_DIR / ("job-%s-%s.json" % (stamp, slug))
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(job, handle, indent=2)
+    # Same-second generations with the same slug used to overwrite
+    # each other's job file; add a short unique suffix.
+    unique = secrets.token_hex(3)
+    path = JOBS_DIR / ("job-%s-%s-%s.json" % (stamp, unique, slug))
+    with _JOB_WRITE_LOCK:
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(job, handle, indent=2)
     return path.name
 
 
@@ -225,7 +245,7 @@ def _handle_tools_call(request_id, arguments):
     # place) or at the top level of the call. Either is accepted,
     # and it is never passed to the engine.
     token = args.get("token") if isinstance(args.get("token"), str) else arguments.get("token")
-    if not isinstance(token, str) or not hmac.compare_digest(token, API_TOKEN):
+    if not _tokens_match(token, API_TOKEN):
         _log("MCP auth failed for tools/call: missing or wrong token.")
         return _error(request_id, -32001, "Missing or wrong API token.")
     caller = args.get("caller") if isinstance(args.get("caller"), str) else "unknown"
@@ -273,6 +293,11 @@ def _handle_tools_call(request_id, arguments):
 def _handle(request):
     if not isinstance(request, dict):
         return _error(None, -32600, "Request must be a JSON object.")
+    # A message with no id is a JSON-RPC notification: never respond,
+    # whatever the method (previously notifications/initialized and
+    # friends fell through to Method-not-found with id null).
+    if "id" not in request:
+        return None
     method = request.get("method")
     request_id = request.get("id")
     params = request.get("params") or {}
@@ -314,7 +339,8 @@ def main():
             response = _handle(request)
         except Exception as exc:
             _log("MCP dispatch error: %s" % exc.__class__.__name__)
-            response = _error(request.get("id"), -32603, "Internal server error.")
+            request_id = request.get("id") if isinstance(request, dict) else None
+            response = _error(request_id, -32603, "Internal server error.")
         if response is not None:
             sys.stdout.write(json.dumps(response) + "\n")
             sys.stdout.flush()

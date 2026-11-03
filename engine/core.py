@@ -38,6 +38,12 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+from xml.sax.saxutils import escape as _xml_escape
+
+
+def _xml(value):
+    """Escape a value for XML text or a double-quoted attribute."""
+    return _xml_escape(str(value), {'"': "&quot;"})
 
 BED_W_IN = 25.0
 BED_H_IN = 50.0
@@ -379,6 +385,35 @@ def _check(rule, status, part, detail, fix=""):
             "detail": detail, "fix": fix}
 
 
+def _placement_dims(part, placement):
+    """Placed (w, h) in inches for one placement, or None if unusable.
+
+    Tiled placements use the tile size from _tiles; a single placement
+    uses the part dims, swapped when the placement is rotated. NaN or
+    infinite dims, a bad tile_index, and missing keys all give None
+    instead of raising, so a malformed job fails preflight cleanly.
+    """
+    try:
+        tile_index = placement.get("tile_index", 0)
+        if isinstance(tile_index, bool) or not isinstance(tile_index, int):
+            return None
+        tiles = _tiles(part)
+        if tile_index < 0 or tile_index >= len(tiles):
+            return None
+        if len(tiles) > 1 or tile_index > 0:
+            w, h = tiles[tile_index][0], tiles[tile_index][1]
+        else:
+            w, h = part["width_in"], part["height_in"]
+            if placement.get("rotated"):
+                w, h = h, w
+        w, h = float(w), float(h)
+        if not (math.isfinite(w) and math.isfinite(h)):
+            return None
+        return (w, h)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
 def check_job_hd520(job):
     """Deterministic, model-free preflight. No model anywhere in this path."""
     params = job.get("params", {}) or {}
@@ -456,9 +491,10 @@ def check_job_hd520(job):
                 part = by_id.get(placement["part_id"])
                 if part is None:
                     continue
-                pw, ph = part["width_in"], part["height_in"]
-                if placement.get("rotated"):
-                    pw, ph = ph, pw
+                dims = _placement_dims(part, placement)
+                if dims is None:
+                    continue
+                pw, ph = dims
                 x = placement.get("x_in", 0.0)
                 y = placement.get("y_in", 0.0)
                 if (x < CLAMP_MARGIN_IN or y < CLAMP_MARGIN_IN
@@ -502,15 +538,37 @@ def check_job_hd520(job):
                              "All part dims are positive.", ""))
     part_ids = {p["id"] for p in parts}
     placed_ids = {p["part_id"] for p in placements}
-    if part_ids != placed_ids:
+    # Count-aware agreement: each part must be placed exactly once per
+    # tile _tiles cuts for it, with tile_index values 0..n-1. A plain
+    # set comparison let a duplicated (or dropped duplicate) placement
+    # pass, and a tiled part placed with the wrong indexes passed too.
+    placed_indexes = {}
+    for placement in placements:
+        placed_indexes.setdefault(placement["part_id"], []).append(
+            placement.get("tile_index", 0))
+    count_bad = []
+    for part in parts:
+        try:
+            expected_count = len(_tiles(part))
+        except (KeyError, TypeError, ValueError, OverflowError):
+            count_bad.append(part["id"])
+            continue
+        got = sorted(placed_indexes.get(part["id"], []),
+                     key=lambda v: (not isinstance(v, int), v))
+        if got != list(range(expected_count)):
+            count_bad.append(part["id"])
+    if part_ids != placed_ids or count_bad:
         missing = sorted(part_ids - placed_ids)
         extra = sorted(placed_ids - part_ids)
         checks.append(_check("R6-nesting", "fail", "",
                              "Parts list and nesting disagree. Missing from "
-                             "nesting: %s. Extra in nesting: %s."
+                             "nesting: %s. Extra in nesting: %s. Wrong "
+                             "placement count or tile indexes: %s."
                              % (", ".join(missing) or "none",
-                                ", ".join(extra) or "none"),
-                             "Re-nest so every part id appears in nesting."))
+                                ", ".join(extra) or "none",
+                                ", ".join(sorted(set(count_bad))) or "none"),
+                             "Re-nest so every part appears exactly once "
+                             "per tile, with tile_index values in order."))
     else:
         checks.append(_check("R6-nesting", "pass", "",
                              "Parts list and nesting agree one-for-one: every "
@@ -546,24 +604,31 @@ def check_job_hd520(job):
                                  "1/32 in: %.4f x %.4f x %.4f in (W x D x H)."
                                  % (dry["width_in"], dry["depth_in"],
                                     dry["height_in"]), ""))
-    # Bed containment for untiled placements.
+    # Bed containment for every placement, tiled tiles included.
+    # (Previously any part placed more than once was skipped entirely,
+    # so a tiled tile could sit anywhere and still pass.)
     by_id = {p["id"]: p for p in parts}
-    counts = {}
-    for placement in placements:
-        counts[placement["part_id"]] = counts.get(placement["part_id"], 0) + 1
     outside = []
     for sheet in sheets:
         for placement in sheet.get("placements", []) or []:
-            if counts.get(placement["part_id"], 0) > 1:
-                continue
             part = by_id.get(placement["part_id"])
             if part is None:
                 continue
-            pw, ph = part["width_in"], part["height_in"]
-            if placement.get("rotated"):
-                pw, ph = ph, pw
-            if (placement.get("x_in", 0.0) + pw > BED_W_IN + 1e-9
-                    or placement.get("y_in", 0.0) + ph > BED_H_IN + 1e-9):
+            dims = _placement_dims(part, placement)
+            x = placement.get("x_in", 0.0)
+            y = placement.get("y_in", 0.0)
+            if (dims is None or isinstance(x, bool)
+                    or isinstance(y, bool)
+                    or not isinstance(x, (int, float))
+                    or not isinstance(y, (int, float))
+                    or not math.isfinite(float(x))
+                    or not math.isfinite(float(y))):
+                outside.append(placement["part_id"])
+                continue
+            pw, ph = dims
+            if (x < 0.0 or y < 0.0
+                    or x + pw > BED_W_IN + 1e-9
+                    or y + ph > BED_H_IN + 1e-9):
                 outside.append(placement["part_id"])
     if outside:
         checks.append(_check("R1-bed", "fail", "",
@@ -572,7 +637,7 @@ def check_job_hd520(job):
                              "Re-nest or tile the oversize parts."))
     else:
         checks.append(_check("R1-bed", "pass", "",
-                             "All untiled placements fit the 25 x 50 in bed.",
+                             "All placements fit the 25 x 50 in bed.",
                              ""))
     passed = all(c["status"] != "fail" for c in checks)
     return {"passed": passed, "checks": checks}
@@ -795,7 +860,7 @@ def export_front_svg(job):
            'role="img" aria-label="Front view of the generated cabinet">'
            % (_fmt(vb_w), _fmt(vb_h))]
     out.append('<title>Front view: %s, %s x %s in</title>'
-               % (layout, _fmt(width), _fmt(box_h)))
+               % (_xml(layout), _fmt(width), _fmt(box_h)))
     out.append('<text x="%s" y="%s" font-size="11" text-anchor="middle" '
                'fill="#1a1a1a">%s in wide</text>'
                % (_fmt(ox + width * s / 2.0), _fmt(oy - 6.0), _fmt(width)))
@@ -875,9 +940,9 @@ def export_part_svgs(job):
         vb_h = h * s + 56.0
         out = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s" '
                'role="img" aria-label="Drawing of %s">'
-               % (_fmt(vb_w), _fmt(vb_h), part["name"])]
+               % (_fmt(vb_w), _fmt(vb_h), _xml(part["name"]))]
         out.append('<title>%s: %s x %s in</title>'
-                   % (part["name"], _fmt(w), _fmt(h)))
+                   % (_xml(part["name"]), _fmt(w), _fmt(h)))
         out.append('<text x="%s" y="%s" font-size="11" text-anchor="middle" '
                    'fill="#1a1a1a">%s in wide</text>'
                    % (_fmt(ox + w * s / 2.0), _fmt(oy - 8.0), _fmt(w)))
@@ -904,9 +969,9 @@ def export_part_svgs(job):
         out.append('<text x="%s" y="%s" font-size="11" fill="#1a1a1a">'
                    '%s, %s in thick, grain %s, edge banding: %s, qty %d'
                    '</text>'
-                   % (_fmt(ox), _fmt(oy + h * s + 20.0), part["material"],
-                      _fmt(part["thickness_in"]), part["grain"],
-                      part["edge_banding"], part["quantity"]))
+                   % (_fmt(ox), _fmt(oy + h * s + 20.0), _xml(part["material"]),
+                      _fmt(part["thickness_in"]), _xml(part["grain"]),
+                      _xml(part["edge_banding"]), part["quantity"]))
         out.append('</svg>')
         drawings.append({"part_id": part["id"], "name": part["name"],
                          "svg": "\n".join(out) + "\n"})
@@ -929,9 +994,9 @@ def export_sheet_svgs(job):
         out = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s" '
                'role="img" aria-label="Nesting sheet %s">'
                % (_fmt(bw * s + 8.0), _fmt(bh * s + 8.0),
-                  sheet.get("sheet_id", ""))]
+                  _xml(sheet.get("sheet_id", "")))]
         out.append('<title>%s: %d placements</title>'
-                   % (sheet.get("sheet_id", ""),
+                   % (_xml(sheet.get("sheet_id", "")),
                       len(sheet.get("placements", []) or [])))
         out.append('<rect x="4" y="4" width="%s" height="%s" fill="#ffffff" '
                    'stroke="#1a1a1a" stroke-width="2"/>'
@@ -952,7 +1017,7 @@ def export_sheet_svgs(job):
                        'fill="#f4f4f2" stroke="#1a1a1a" '
                        'stroke-width="1"><title>%s</title></rect>'
                        % (_fmt(x), _fmt(y), _fmt(w), _fmt(h),
-                          pl["part_id"]))
+                          _xml(pl["part_id"])))
             if w >= 42.0 and h >= 14.0:
                 label = pl["part_id"]
                 if pl.get("rotated"):
@@ -961,13 +1026,53 @@ def export_sheet_svgs(job):
                     label += " T%d" % ti
                 out.append('<text x="%s" y="%s" font-size="10" '
                            'fill="#1a1a1a">%s</text>'
-                           % (_fmt(x + 3.0), _fmt(y + 13.0), label))
+                           % (_fmt(x + 3.0), _fmt(y + 13.0), _xml(label)))
         out.append('</svg>')
         svgs.append("\n".join(out) + "\n")
     return svgs
 
 
 # ---------------------------------------------------------------- generate
+
+_NUMERIC_FIELDS = ("width_in", "height_box_in", "overall_height_in",
+                   "depth_in", "material_thickness_in",
+                   "toe_kick_height_in", "toe_kick_recess_in",
+                   "slide_clearance_in")
+_BOOLEAN_FIELDS = ("pin_grid_enabled", "thickness_is_nominal",
+                   "tabs_enabled", "clamps_enabled")
+
+
+def _validate_param_types(raw):
+    """Reject non-numeric, NaN/infinite, and mistyped params early.
+
+    Without this, a string width crashed with TypeError (HTTP 500 on
+    the servers), NaN sailed through every comparison in preflight
+    and was exported into the DXF, and the string "false" counted as
+    True for the boolean toggles.
+    """
+    for field in _NUMERIC_FIELDS:
+        value = raw.get(field)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("%s must be a number" % field)
+        if not math.isfinite(float(value)):
+            raise ValueError("%s must be a finite number" % field)
+    for field in _BOOLEAN_FIELDS:
+        value = raw.get(field)
+        if value is not None and not isinstance(value, bool):
+            raise ValueError("%s must be true or false" % field)
+    if raw.get("material_name") is not None \
+            and not isinstance(raw.get("material_name"), str):
+        raise ValueError("material_name must be a string")
+    count = raw.get("drawer_count")
+    if count is not None:
+        if isinstance(count, bool) or not isinstance(count, (int, float)) \
+                or not math.isfinite(float(count)) \
+                or int(count) != count:
+            raise ValueError("drawer_count must be a positive integer")
+        raw["drawer_count"] = int(count)
+
 
 def generate_cabinet(params):
     """Build a cabinet job from plain params. See module docstring."""
@@ -977,6 +1082,13 @@ def generate_cabinet(params):
     provider = raw.get("provider", "local")
     if provider not in ("meta", "local"):
         raise ValueError("provider must be 'meta' or 'local'")
+    _validate_param_types(raw)
+    if provider == "meta" and raw.get("base_url") is not None:
+        # Never send the Meta key to a caller-supplied URL: a token
+        # holder who does not know the key could otherwise point
+        # base_url at their own server and collect the Bearer key.
+        if str(raw["base_url"]).rstrip("/") != META_BASE_URL:
+            raise ValueError("base_url must be %s" % META_BASE_URL)
 
     # Brief parsing: explicit params always win over parsed params.
     # Layout and width are validated AFTER this block, so a brief
@@ -1001,6 +1113,8 @@ def generate_cabinet(params):
             if key not in ("brief_text", "provider", "base_url", "model"):
                 merged[key] = value
         raw = merged
+        # The parser (regex or model) can return mistyped values too.
+        _validate_param_types(raw)
     layout = raw.get("layout")
     if layout not in LAYOUTS:
         raise ValueError("layout must be one of: %s" % ", ".join(LAYOUTS))
@@ -1066,6 +1180,18 @@ def generate_cabinet(params):
                          "count must be positive")
 
     parts = _build_parts(resolved)
+    bad_parts = [p["id"] for p in parts
+                 if not (math.isfinite(p["width_in"])
+                         and math.isfinite(p["height_in"])
+                         and math.isfinite(p["thickness_in"]))
+                 or p["width_in"] <= 0 or p["height_in"] <= 0
+                 or p["thickness_in"] <= 0]
+    if bad_parts:
+        raise ValueError(
+            "These dimensions produce a non-positive part (%s). Check "
+            "width, depth, box height, thickness, and drawer count: a "
+            "cabinet this small cannot contain the carcass and drawer "
+            "boxes the layout needs." % ", ".join(bad_parts[:3]))
     nesting = _nest_parts(parts)
     job = {
         "job_id": "job-" + uuid.uuid4().hex[:12],

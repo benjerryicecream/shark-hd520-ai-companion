@@ -426,7 +426,9 @@
       statusEl.textContent = data.meta_configured
         ? ('Meta key: set (' + data.meta_source + ').')
         : 'Meta key: not set. Meta briefs will be refused until a key is saved.';
-      document.getElementById('provider').value = data.meta_configured ? 'meta' : 'local';
+      // Do not touch the provider select here: silently switching it
+      // to Meta just because a key exists would send the next brief
+      // to Meta when the user had deliberately chosen Local.
       if (data.desktop) { document.getElementById('quitBtn').style.display = ''; }
     }).catch(function (err) {
       statusEl.textContent = 'Meta key status unavailable: ' + err.message;

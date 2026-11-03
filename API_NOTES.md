@@ -65,7 +65,7 @@ Never logged: tokens, API keys, or secret values. A secret-scan failure is logge
 
 ## Job storage (provisional)
 
-Each generated job is saved to jobs/job-YYYYMMDD-HHMMSS-<slug>.json, where the slug comes from params job_name or, when no job name is given, from the layout, lowercased with non-alphanumeric runs replaced by hyphens. This folder and naming are PROVISIONAL, pending the owner's decision. Job files contain engine output only: no token, no key, and no caller credential of any kind. In desktop mode and in the packaged exe, jobs live under the per-user data dir instead (Windows: %APPDATA%\HD520Companion\jobs), because the exe runs from a temporary extraction dir that is wiped on exit.
+Each generated job is saved to jobs/job-YYYYMMDD-HHMMSS-<unique>-<slug>.json, where <unique> is a short random suffix (so two generations in the same second cannot overwrite each other) and the slug comes from params job_name or, when no job name is given, from the layout, lowercased with non-alphanumeric runs replaced by hyphens. This folder and naming are PROVISIONAL, pending the owner's decision. Job files contain engine output only: no token, no key, and no caller credential of any kind. In desktop mode and in the packaged exe, jobs live under the per-user data dir instead (Windows: %APPDATA%\HD520Companion\jobs), because the exe runs from a temporary extraction dir that is wiped on exit.
 
 ## Desktop packaging
 

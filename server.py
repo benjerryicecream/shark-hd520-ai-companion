@@ -56,6 +56,7 @@ import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -75,6 +76,10 @@ JOBS_DIR = ((user_data_dir() / "jobs") if (DESKTOP_MODE or FROZEN)
 HOST = "127.0.0.1"
 PORT = 8791
 VERSION = "1.0-phase1"
+# check_job_hd520 bodies carry a whole generated job (DXF + SVGs), so
+# the cap is generous, but a body is never read unbounded into memory.
+MAX_BODY_BYTES = 5_000_000
+_JOB_WRITE_LOCK = threading.Lock()
 
 API_KEY_BODY_KEYS = {
     "api_key", "apikey", "api-key", "meta_api_key", "meta-model-api-key",
@@ -93,6 +98,19 @@ def _load_token():
 
 
 API_TOKEN, _TOKEN_GENERATED = _load_token()
+
+
+def _tokens_match(presented, expected):
+    """Constant-time token compare that never raises on odd input.
+
+    hmac.compare_digest on str rejects non-ASCII, so a token header
+    with an accented character used to crash the handler thread and
+    drop the connection instead of returning 401.
+    """
+    if not isinstance(presented, str) or not presented:
+        return False
+    return hmac.compare_digest(presented.encode("utf-8"),
+                               str(expected).encode("utf-8"))
 
 def _resolve_meta_key():
     """Effective Meta key: stored key, then original env keys.
@@ -164,8 +182,9 @@ def _log_call(caller, tool, job_id, provider, model, passed, status):
         "status": status,
     }
     line = json.dumps(record) + "\n"
-    with open(JOBS_DIR / "api_log.jsonl", "a", encoding="utf-8") as handle:
-        handle.write(line)
+    with _JOB_WRITE_LOCK:
+        with open(JOBS_DIR / "api_log.jsonl", "a", encoding="utf-8") as handle:
+            handle.write(line)
 
 
 def _save_job(job, params):
@@ -173,9 +192,13 @@ def _save_job(job, params):
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     slug = _slug(params.get("job_name") or params.get("layout"),
                  "job")
-    path = JOBS_DIR / ("job-%s-%s.json" % (stamp, slug))
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(job, handle, indent=2)
+    # Second-resolution stamps collided: two generations in the same
+    # second with the same slug overwrote each other's job file.
+    unique = secrets.token_hex(3)
+    path = JOBS_DIR / ("job-%s-%s-%s.json" % (stamp, unique, slug))
+    with _JOB_WRITE_LOCK:
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(job, handle, indent=2)
     return path.name
 
 
@@ -228,13 +251,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _route(self):
+        """Path without the query string, for route matching."""
+        return urlsplit(self.path).path
+
     def _auth_ok(self):
         presented = self.headers.get("X-API-Token")
         if not presented:
             auth = self.headers.get("Authorization") or ""
             if auth.lower().startswith("bearer "):
                 presented = auth[7:].strip()
-        if not presented or not hmac.compare_digest(presented, API_TOKEN):
+        if not _tokens_match(presented, API_TOKEN):
             sys.stderr.write("Auth failed for %s %s: missing or wrong "
                              "token.\n" % (self.command, self.path))
             return False
@@ -248,6 +275,10 @@ class Handler(BaseHTTPRequestHandler):
             size = int(length)
         except ValueError:
             return None, "Invalid Content-Length header."
+        if size < 0:
+            return None, "Invalid Content-Length header."
+        if size > MAX_BODY_BYTES:
+            return None, "Request body is too large."
         raw = self.rfile.read(size) if size > 0 else b""
         if not raw:
             return None, "Request body is required and must be JSON."
@@ -257,12 +288,13 @@ class Handler(BaseHTTPRequestHandler):
             return None, "Request body must be valid JSON."
 
     def do_GET(self):
-        if self.path == "/health":
+        route = self._route()
+        if route == "/health":
             self._send_json(200, {"ok": True, "app": "hd520-companion",
                                   "version": VERSION,
                                   "desktop": DESKTOP_MODE})
             return
-        if self.path == "/api/settings":
+        if route == "/api/settings":
             if not self._auth_ok():
                 self._send_json(401, {"error": "Missing or wrong API token."})
                 return
@@ -273,7 +305,7 @@ class Handler(BaseHTTPRequestHandler):
                 "version": VERSION,
             })
             return
-        if self.path == "/":
+        if route == "/":
             if not UI_FILE.exists():
                 self._send_json(500, {"error": "UI file is missing."})
                 return
@@ -301,7 +333,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "Not found."})
 
     def do_POST(self):
-        if self.path == "/api/settings/meta-key":
+        route = self._route()
+        if route == "/api/settings/meta-key":
             if not self._auth_ok():
                 self._send_json(401, {"error": "Missing or wrong API token."})
                 return
@@ -318,13 +351,16 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 self._send_json(400, {"error": str(exc)})
                 return
+            except OSError:
+                self._send_json(500, {"error": "Could not store the Meta key."})
+                return
             _apply_meta_key()
             sys.stderr.write("Settings: Meta key saved (source: %s).\n"
                              % _meta_source())
             self._send_json(200, {"meta_configured": True,
                                   "meta_source": _meta_source()})
             return
-        if self.path == "/api/shutdown":
+        if route == "/api/shutdown":
             if not DESKTOP_MODE:
                 self._send_json(404, {"error": "Not found."})
                 return
@@ -335,10 +371,10 @@ class Handler(BaseHTTPRequestHandler):
             sys.stderr.write("Desktop shutdown requested from the UI.\n")
             threading.Timer(0.3, lambda: os._exit(0)).start()
             return
-        if self.path not in ("/api/generate_cabinet", "/api/check_job_hd520"):
+        if route not in ("/api/generate_cabinet", "/api/check_job_hd520"):
             self._send_json(404, {"error": "Not found."})
             return
-        tool = self.path.rsplit("/", 1)[-1]
+        tool = route.rsplit("/", 1)[-1]
         if not self._auth_ok():
             _log_call("unknown", tool, None, None, None, None, "401")
             self._send_json(401, {"error": "Missing or wrong API token."})
@@ -421,7 +457,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
     def do_DELETE(self):
-        if self.path == "/api/settings/meta-key":
+        if self._route() == "/api/settings/meta-key":
             if not self._auth_ok():
                 self._send_json(401, {"error": "Missing or wrong API token."})
                 return
@@ -436,8 +472,24 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "Not found."})
 
 
+class CompanionHTTPServer(ThreadingHTTPServer):
+    # ThreadingHTTPServer inherits allow_reuse_address=1, which on
+    # Windows lets a SECOND instance bind the same port: two desktop
+    # processes were found listening on 8791 at once, each with its
+    # own random token, so UI calls failed auth at random depending
+    # on which process took the connection. Refuse the second bind.
+    allow_reuse_address = False
+    daemon_threads = True
+
+
 def main():
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    try:
+        server = CompanionHTTPServer((HOST, PORT), Handler)
+    except OSError:
+        sys.stderr.write(
+            "HD520 companion: port %d is already in use. Another copy "
+            "of the app is probably running; close it and retry.\n" % PORT)
+        raise SystemExit(1)
     print("HD520 companion REST server listening on %s:%d" % (HOST, PORT))
     print("UI: http://%s:%d/ (page is public; API calls still need the token)"
           % (HOST, PORT))

@@ -67,7 +67,7 @@ No machine-control verb exists in either inventory. There is no start, jog, paus
 
 ## Job storage (provisional)
 
-Each generated job is saved as JSON to jobs/job-YYYYMMDD-HHMMSS-<slug>.json, where the slug comes from params job_name or, when no job name is given, from the layout. One JSON line per API call is appended to jobs/api_log.jsonl with caller, tool, job_id, provider, model, and preflight passed. No token or key is ever written to a job file, a log line, a cut list, or DXF output. This folder and naming are PROVISIONAL, pending the owner's decision on job storage. Do not treat them as final. In desktop mode and in the packaged exe, jobs live under the per-user data dir instead (Windows: %APPDATA%\HD520Companion\jobs), because the exe runs from a temporary extraction dir.
+Each generated job is saved as JSON to jobs/job-YYYYMMDD-HHMMSS-<unique>-<slug>.json, where <unique> is a short random suffix (so two generations in the same second cannot overwrite each other) and the slug comes from params job_name or, when no job name is given, from the layout. One JSON line per API call is appended to jobs/api_log.jsonl with caller, tool, job_id, provider, model, and preflight passed. No token or key is ever written to a job file, a log line, a cut list, or DXF output. This folder and naming are PROVISIONAL, pending the owner's decision on job storage. Do not treat them as final. In desktop mode and in the packaged exe, jobs live under the per-user data dir instead (Windows: %APPDATA%\HD520Companion\jobs), because the exe runs from a temporary extraction dir.
 
 ## Gaps carried forward
 
