@@ -12,6 +12,7 @@ import copy
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -72,6 +73,11 @@ class ServerPair:
         self.rest_out = None
         self.mcp_err = None
         self._request_id = 0
+        # Fresh isolated keystore per pair: with HD520_KEYSTORE_DIR
+        # set, both servers use an empty file-only store in this dir
+        # and never see a real key saved in the Windows vault or the
+        # file fallback. Removed again in stop().
+        self.keystore_dir = tempfile.mkdtemp(prefix="hd520-keystore-")
 
     def _env(self):
         env = dict(os.environ)
@@ -79,6 +85,7 @@ class ServerPair:
                     "META_MODEL_API_KEY"):
             env.pop(key, None)
         env["HD520_API_TOKEN"] = TEST_TOKEN
+        env["HD520_KEYSTORE_DIR"] = self.keystore_dir
         env["PYTHONUNBUFFERED"] = "1"
         if self.meta_key:
             env["HD520_META_API_KEY"] = self.meta_key
@@ -145,6 +152,9 @@ class ServerPair:
                     pass
         self.rest_out = None
         self.mcp_err = None
+        if self.keystore_dir is not None:
+            shutil.rmtree(self.keystore_dir, ignore_errors=True)
+            self.keystore_dir = None
 
     def mcp_call(self, method, params):
         self._request_id += 1

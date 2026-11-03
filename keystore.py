@@ -18,6 +18,14 @@ key is never printed, logged, written to a job file, cut list, DXF,
 or export. The settings status endpoints report only whether a key
 is stored and where, never the key itself.
 
+Test isolation override: when env HD520_KEYSTORE_DIR is set, the
+keystore becomes file-only inside that directory and the Windows
+vault is bypassed entirely (get, set, delete, and source). That is
+what lets the parity suite run against an empty store on a machine
+that has a real key saved. When the variable is unset, behavior is
+exactly as described above; the override never moves the jobs/data
+dir, only the key file.
+
 Delete clears both stores, so a deleted key cannot resurface from
 the other store. Set writes to the preferred store and clears the
 other store, so the two can never disagree.
@@ -60,7 +68,18 @@ def user_data_dir():
     return config_dir() / APP_DIR_NAME
 
 
+def _override_dir():
+    """HD520_KEYSTORE_DIR test-isolation dir, or None when unset."""
+    raw = os.environ.get("HD520_KEYSTORE_DIR")
+    if raw and raw.strip():
+        return Path(raw.strip())
+    return None
+
+
 def _file_path():
+    override = _override_dir()
+    if override is not None:
+        return override / FILE_NAME
     return user_data_dir() / FILE_NAME
 
 
@@ -199,6 +218,8 @@ def vault_available():
 
 def get_meta_key():
     """Return the stored Meta key, or None. Never logs or prints it."""
+    if _override_dir() is not None:
+        return _file_get()
     value = _vault_get()
     if value:
         return value
@@ -207,6 +228,8 @@ def get_meta_key():
 
 def meta_key_source():
     """Where a stored key lives: "vault", "file", or None. No key value."""
+    if _override_dir() is not None:
+        return "file" if _file_get() else None
     if _vault_get():
         return "vault"
     if _file_get():
@@ -219,7 +242,9 @@ def set_meta_key(key):
     if not isinstance(key, str) or not key.strip():
         raise ValueError("Meta key must be a non-empty string.")
     key = key.strip()
-    if _vault_set(key):
+    if _override_dir() is not None:
+        _file_set(key)
+    elif _vault_set(key):
         _file_delete()
     else:
         _file_set(key)
@@ -227,5 +252,8 @@ def set_meta_key(key):
 
 def delete_meta_key():
     """Remove the stored Meta key from both stores."""
+    if _override_dir() is not None:
+        _file_delete()
+        return
     _vault_delete()
     _file_delete()
