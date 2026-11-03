@@ -158,13 +158,18 @@ The back panel (33.094 x 29.547) fits neither bed orientation
    that fit neither bed orientation are tiled, and only along the
    exceeding dimension.
 
-## Layouts (all six implemented)
+## Layouts (all seven implemented)
 
 - doors: carcass 6 + 2 doors (door width = (W - 0.25) / 2,
   height = box height - 0.25). 8 panels at 34 in wide.
 - drawers-over-doors: carcass 6 + 1 drawer front (height =
   box height / 3) + 1 drawer box (4 panels) + 2 doors (height =
   box height - front height - 0.5). 13 panels at 34 in wide.
+- drawer-over-door: carcass 6 + 1 drawer front (height =
+  box height / 3) + 1 drawer box (4 panels) + 1 door (width =
+  W - 0.125, height = box height - front height - 0.5).
+  12 panels at 34 in wide. Brief keywords: "drawer over door",
+  "drawer on top".
 - drawer-bank: carcass 6 + drawer_count fronts + drawer_count
   drawer boxes of 4 panels. drawer_count defaults to 2. 16 panels
   at 34 in wide with 2 drawers.

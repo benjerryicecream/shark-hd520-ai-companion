@@ -54,7 +54,7 @@ PROTOTYPE_SLIDE_CLEARANCE_IN = 0.5
 PIN_GRID_MM = 5
 META_BASE_URL = "https://api.meta.ai/v1"
 META_MODEL = "muse-spark-1.3"
-LAYOUTS = ("doors", "drawers-over-doors", "drawer-bank", "sink-base", "pantry", "wall")
+LAYOUTS = ("doors", "drawers-over-doors", "drawer-over-door", "drawer-bank", "sink-base", "pantry", "wall")
 
 # ---------------------------------------------------------------- tools
 
@@ -163,6 +163,15 @@ def _build_parts(params):
                            door_w, door_h, "vertical", "all edges"))
         parts.append(_part("door-right", "Door right", "door", material, t,
                            door_w, door_h, "vertical", "all edges"))
+    elif layout == "drawer-over-door":
+        front_h = box_h / 3.0
+        door_h = box_h - front_h - 0.5
+        parts.append(_part("drawer-1-front", "Drawer front",
+                           "drawer-front", material, t, front_w, front_h,
+                           "horizontal", "all edges"))
+        parts.extend(_drawer_box(1, front_h, box_w, box_depth, t, material))
+        parts.append(_part("door", "Door", "door", material, t,
+                           front_w, door_h, "vertical", "all edges"))
     elif layout == "sink-base":
         front_h = box_h / 3.0
         door_h = box_h - front_h - 0.5
@@ -711,6 +720,196 @@ def export_cut_list(job):
     return "\n".join(out) + "\n"
 
 
+def _front_rects(params):
+    """Front-elevation rectangles (inches) from the layout rules.
+
+    Returns (rects, toe_h): rects are (x, y, w, h, label) with y down
+    from the top of the box; toe_h is 0 for walls, else the toe-kick
+    height. Rect sizes match the front parts _build_parts emits.
+    """
+    width = params["width_in"]
+    box_h = params["height_box_in"]
+    layout = params["layout"]
+    front_w = width - 0.125
+    rects = []
+    if layout == "doors":
+        door_w = (width - 0.25) / 2.0
+        door_h = box_h - 0.25
+        rects.append((0.125, 0.125, door_w, door_h, "door left"))
+        rects.append((0.125 + door_w, 0.125, door_w, door_h, "door right"))
+    elif layout == "drawer-bank":
+        count = params["drawer_count"]
+        front_h = (box_h - 0.5) / float(count)
+        for i in range(count):
+            rects.append((0.0625, i * front_h, front_w, front_h,
+                          "drawer %d" % (i + 1)))
+    elif layout in ("drawers-over-doors", "drawer-over-door", "sink-base"):
+        front_h = box_h / 3.0
+        door_h = box_h - front_h - 0.5
+        label = "drawer" if layout != "sink-base" else "false front"
+        rects.append((0.0625, 0.0, front_w, front_h, label))
+        if layout == "drawer-over-door":
+            rects.append((0.0625, front_h, front_w, door_h, "door"))
+        else:
+            door_w = (width - 0.25) / 2.0
+            rects.append((0.125, front_h, door_w, door_h, "door left"))
+            rects.append((0.125 + door_w, front_h, door_w, door_h,
+                          "door right"))
+    elif layout == "pantry":
+        door_w = (width - 0.25) / 2.0
+        door_h = box_h - 0.25
+        rects.append((0.125, 0.125, door_w, door_h, "door left"))
+        rects.append((0.125 + door_w, 0.125, door_w, door_h, "door right"))
+    elif layout == "wall":
+        door_h = box_h - 0.25
+        if width < 24.0:
+            rects.append((0.0625, 0.125, front_w, door_h, "door"))
+        else:
+            door_w = (width - 0.25) / 2.0
+            rects.append((0.125, 0.125, door_w, door_h, "door left"))
+            rects.append((0.125 + door_w, 0.125, door_w, door_h,
+                          "door right"))
+    toe_h = 0.0 if layout == "wall" else params.get(
+        "toe_kick_height_in", DEFAULT_TOE_KICK_HEIGHT_IN)
+    return rects, toe_h
+
+
+def export_front_svg(job):
+    """Front-elevation SVG of the generated cabinet (schematic).
+
+    Drawn from the job's params and layout rules, so rect sizes match
+    the front parts in the parts list. Monochrome, no external refs,
+    no user text. Gaps and hardware are not shown.
+    """
+    params = job.get("params", {}) or {}
+    width = params["width_in"]
+    box_h = params["height_box_in"]
+    layout = params.get("layout", "")
+    rects, toe_h = _front_rects(params)
+    total_h = box_h + toe_h
+    s = 10.0
+    ox, oy = 34.0, 20.0
+    vb_w = width * s + 42.0
+    vb_h = total_h * s + 28.0
+    out = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s" '
+           'role="img" aria-label="Front view of the generated cabinet">'
+           % (_fmt(vb_w), _fmt(vb_h))]
+    out.append('<title>Front view: %s, %s x %s in</title>'
+               % (layout, _fmt(width), _fmt(box_h)))
+    out.append('<text x="%s" y="%s" font-size="11" text-anchor="middle" '
+               'fill="#1a1a1a">%s in wide</text>'
+               % (_fmt(ox + width * s / 2.0), _fmt(oy - 6.0), _fmt(width)))
+    cy = oy + box_h * s / 2.0
+    out.append('<text x="10" y="%s" font-size="11" text-anchor="middle" '
+               'fill="#1a1a1a" transform="rotate(-90 10 %s)">%s in box '
+               'height</text>' % (_fmt(cy), _fmt(cy), _fmt(box_h)))
+    if layout == "wall":
+        yline = oy - 8.0
+        out.append('<line x1="%s" y1="%s" x2="%s" y2="%s" stroke="#1a1a1a" '
+                   'stroke-width="1.5"/>'
+                   % (_fmt(ox - 6.0), _fmt(yline),
+                      _fmt(ox + width * s + 6.0), _fmt(yline)))
+        for frac in (0.25, 0.75):
+            tx = ox + width * s * frac
+            out.append('<line x1="%s" y1="%s" x2="%s" y2="%s" '
+                       'stroke="#1a1a1a" stroke-width="1.5"/>'
+                       % (_fmt(tx), _fmt(yline - 3.0),
+                          _fmt(tx), _fmt(yline + 3.0)))
+    out.append('<rect x="%s" y="%s" width="%s" height="%s" fill="#ffffff" '
+               'stroke="#1a1a1a" stroke-width="2"/>'
+               % (_fmt(ox), _fmt(oy), _fmt(width * s), _fmt(box_h * s)))
+    for (x, y, w, h, label) in rects:
+        rx, ry = ox + x * s, oy + y * s
+        rw, rh = w * s, h * s
+        out.append('<rect x="%s" y="%s" width="%s" height="%s" '
+                   'fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5">'
+                   '<title>%s</title></rect>'
+                   % (_fmt(rx), _fmt(ry), _fmt(rw), _fmt(rh), label))
+        if label == "door left":
+            out.append('<circle cx="%s" cy="%s" r="3" fill="#1a1a1a"/>'
+                       % (_fmt(rx + rw - 10.0), _fmt(ry + rh / 2.0)))
+        elif label == "door right":
+            out.append('<circle cx="%s" cy="%s" r="3" fill="#1a1a1a"/>'
+                       % (_fmt(rx + 10.0), _fmt(ry + rh / 2.0)))
+        elif label == "door":
+            out.append('<circle cx="%s" cy="%s" r="3" fill="#1a1a1a"/>'
+                       % (_fmt(rx + rw / 2.0), _fmt(ry + rh / 2.0)))
+        else:
+            bar_w = min(40.0, rw / 2.0)
+            out.append('<rect x="%s" y="%s" width="%s" height="3" '
+                       'fill="#1a1a1a"/>'
+                       % (_fmt(rx + rw / 2.0 - bar_w / 2.0),
+                          _fmt(ry + rh / 2.0 - 1.5), _fmt(bar_w)))
+    if toe_h > 0:
+        ty = oy + box_h * s
+        out.append('<rect x="%s" y="%s" width="%s" height="%s" '
+                   'fill="#e8e8e8" stroke="#1a1a1a" stroke-width="1.5"/>'
+                   % (_fmt(ox), _fmt(ty), _fmt(width * s),
+                      _fmt(toe_h * s)))
+        if toe_h * s >= 16.0:
+            out.append('<text x="%s" y="%s" font-size="11" '
+                       'text-anchor="middle" fill="#1a1a1a">toe kick '
+                       '(separate ladder pack)</text>'
+                       % (_fmt(ox + width * s / 2.0),
+                          _fmt(ty + toe_h * s / 2.0 + 4.0)))
+    out.append('</svg>')
+    return "\n".join(out) + "\n"
+
+
+def export_sheet_svgs(job):
+    """One SVG per nesting sheet, from placements (schematic).
+
+    Each placement rect is the placed tile's actual size; labels
+    show part id, R when rotated, T<n> for tile index. Monochrome.
+    """
+    parts = {p["id"]: p for p in (job.get("parts", []) or [])}
+    svgs = []
+    sheets = ((job.get("nesting", {}) or {}).get("sheets", []) or [])
+    for sheet in sheets:
+        bw = sheet.get("bed_w_in", BED_W_IN)
+        bh = sheet.get("bed_h_in", BED_H_IN)
+        s = 10.0
+        out = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s" '
+               'role="img" aria-label="Nesting sheet %s">'
+               % (_fmt(bw * s + 8.0), _fmt(bh * s + 8.0),
+                  sheet.get("sheet_id", ""))]
+        out.append('<title>%s: %d placements</title>'
+                   % (sheet.get("sheet_id", ""),
+                      len(sheet.get("placements", []) or [])))
+        out.append('<rect x="4" y="4" width="%s" height="%s" fill="#ffffff" '
+                   'stroke="#1a1a1a" stroke-width="2"/>'
+                   % (_fmt(bw * s), _fmt(bh * s)))
+        for pl in sheet.get("placements", []) or []:
+            part = parts.get(pl["part_id"])
+            if part is None:
+                continue
+            tiles = _tiles(part)
+            ti = pl.get("tile_index", 0)
+            if ti >= len(tiles):
+                continue
+            tw, th, _rotated, _idx = tiles[ti]
+            x = 4.0 + pl["x_in"] * s
+            y = 4.0 + pl["y_in"] * s
+            w, h = tw * s, th * s
+            out.append('<rect x="%s" y="%s" width="%s" height="%s" '
+                       'fill="#f4f4f2" stroke="#1a1a1a" '
+                       'stroke-width="1"><title>%s</title></rect>'
+                       % (_fmt(x), _fmt(y), _fmt(w), _fmt(h),
+                          pl["part_id"]))
+            if w >= 42.0 and h >= 14.0:
+                label = pl["part_id"]
+                if pl.get("rotated"):
+                    label += " R"
+                if ti > 0:
+                    label += " T%d" % ti
+                out.append('<text x="%s" y="%s" font-size="10" '
+                           'fill="#1a1a1a">%s</text>'
+                           % (_fmt(x + 3.0), _fmt(y + 13.0), label))
+        out.append('</svg>')
+        svgs.append("\n".join(out) + "\n")
+    return svgs
+
+
 # ---------------------------------------------------------------- generate
 
 def generate_cabinet(params):
@@ -829,9 +1028,13 @@ def generate_cabinet(params):
     if preflight["passed"]:
         job["dxf_text"] = export_dxf(job)
         job["cut_list_text"] = export_cut_list(job)
+        job["preview_svg"] = export_front_svg(job)
+        job["sheet_svgs"] = export_sheet_svgs(job)
     else:
         job["dxf_text"] = ""
         job["cut_list_text"] = ""
+        job["preview_svg"] = ""
+        job["sheet_svgs"] = []
     return job
 
 
@@ -878,6 +1081,8 @@ def parse_brief_local(brief_text):
         params["layout"] = "wall"
     elif "drawer bank" in text or "drawer-bank" in text or "drawerbank" in text:
         params["layout"] = "drawer-bank"
+    elif "drawer over door" in text or "drawer on top" in text:
+        params["layout"] = "drawer-over-door"
     elif "drawers over doors" in text or "drawers-over-doors" in text:
         params["layout"] = "drawers-over-doors"
     elif "sink" in text:
@@ -917,8 +1122,8 @@ def _build_meta_request(brief_text, base_url, model):
     system = (
         "You are a cabinet parameter extractor. Reply with JSON only, no "
         "other text. Keys: width_in, height_box_in, depth_in, layout "
-        "(one of doors, drawers-over-doors, drawer-bank, sink-base, "
-        "pantry, wall), material_thickness_in, material_name, "
+        "(one of doors, drawers-over-doors, drawer-over-door, drawer-bank, "
+        "sink-base, pantry, wall), material_thickness_in, material_name, "
         "pin_grid_enabled, drawer_count. Use numbers for dimensions in "
         "inches."
     )

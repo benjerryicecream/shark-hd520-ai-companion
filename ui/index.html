@@ -39,6 +39,9 @@
   .layoutCard .cardSub { margin-top: 0.1em; font-size: 0.8em; font-weight: 400; color: #555; }
   .layoutCard:focus-within { outline: 3px solid rgba(37, 99, 235, 0.4); outline-offset: 2px; }
   #previewSvg { width: 100%; max-width: 420px; height: auto; display: block; margin: 0 auto; }
+  #frontPreview svg { width: 100%; max-width: 520px; height: auto; display: block; margin: 0 auto; }
+  #sheetPreview svg { width: 100%; max-width: 520px; height: auto; display: block; margin: 0 auto; }
+  #sheetButtons button { margin: 0 4px 4px 0; }
   #previewNote { color: #555; font-size: 0.9em; margin: 0.5em 0 0; text-align: center; }
   @media print {
     body { color: #000; background: #fff; margin: 0; max-width: none; }
@@ -83,6 +86,7 @@
   <div class="layoutPicker" id="layoutPicker">
     <label class="layoutCard"><input type="radio" name="layout" value="doors"><svg viewBox="0 0 120 100" role="img" aria-label="Two doors"><rect x="10" y="10" width="50" height="80" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><rect x="60" y="10" width="50" height="80" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><circle cx="54" cy="50" r="2.5" fill="#1a1a1a"/><circle cx="66" cy="50" r="2.5" fill="#1a1a1a"/></svg><span>Doors</span><span class="cardSub">Two doors</span></label>
     <label class="layoutCard"><input type="radio" name="layout" value="drawers-over-doors"><svg viewBox="0 0 120 100" role="img" aria-label="One drawer over two doors"><rect x="10" y="10" width="100" height="26" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><rect x="50" y="21" width="20" height="4" fill="#1a1a1a"/><rect x="10" y="38" width="49" height="52" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><rect x="61" y="38" width="49" height="52" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><circle cx="54" cy="46" r="2.5" fill="#1a1a1a"/><circle cx="67" cy="46" r="2.5" fill="#1a1a1a"/></svg><span>Drawers over doors</span><span class="cardSub">One drawer, two doors</span></label>
+    <label class="layoutCard"><input type="radio" name="layout" value="drawer-over-door"><svg viewBox="0 0 120 100" role="img" aria-label="One drawer over one door"><rect x="10" y="10" width="100" height="26" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><rect x="50" y="21" width="20" height="4" fill="#1a1a1a"/><rect x="10" y="38" width="100" height="52" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><circle cx="60" cy="64" r="2.5" fill="#1a1a1a"/></svg><span>Drawer over door</span><span class="cardSub">One drawer, one door</span></label>
     <label class="layoutCard"><input type="radio" name="layout" value="drawer-bank" checked><svg viewBox="0 0 120 100" role="img" aria-label="Two stacked drawers"><rect x="10" y="10" width="100" height="39" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><rect x="50" y="27" width="20" height="4" fill="#1a1a1a"/><rect x="10" y="51" width="100" height="39" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><rect x="50" y="68" width="20" height="4" fill="#1a1a1a"/></svg><span>Drawer bank</span><span class="cardSub">Two drawers</span></label>
     <label class="layoutCard"><input type="radio" name="layout" value="sink-base"><svg viewBox="0 0 120 100" role="img" aria-label="Sink base with false front and two doors"><rect x="32" y="4" width="56" height="10" rx="5" fill="#fff" stroke="#1a1a1a" stroke-width="1.5"/><rect x="10" y="16" width="100" height="25" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><rect x="10" y="43" width="49" height="47" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><rect x="61" y="43" width="49" height="47" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><circle cx="54" cy="51" r="2.5" fill="#1a1a1a"/><circle cx="67" cy="51" r="2.5" fill="#1a1a1a"/></svg><span>Sink base</span><span class="cardSub">False front, two doors</span></label>
     <label class="layoutCard"><input type="radio" name="layout" value="pantry"><svg viewBox="0 0 120 100" role="img" aria-label="Tall pantry with two doors"><rect x="25" y="5" width="35" height="90" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><rect x="60" y="5" width="35" height="90" fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/><circle cx="54" cy="50" r="2.5" fill="#1a1a1a"/><circle cx="66" cy="50" r="2.5" fill="#1a1a1a"/></svg><span>Pantry</span><span class="cardSub">Tall, two doors</span></label>
@@ -134,6 +138,15 @@
 <div id="status" role="status"></div>
 
 <div id="results" style="display:none">
+  <div class="box noprint" id="resultPreviewBox">
+    <h2>Preview</h2>
+    <p>Drawn from the generated parts, not a photo. Schematic: gaps and hardware not shown.</p>
+    <div id="frontPreview"></div>
+    <h3>Nesting sheets</h3>
+    <div id="sheetButtons"></div>
+    <div id="sheetPreview"></div>
+  </div>
+
   <div class="box" id="providerBox">
     <h2>Provider record</h2>
     <p id="providerText"></p>
@@ -253,6 +266,23 @@
       document.getElementById('providerText').textContent =
         'Provider: ' + (rec.provider || 'unknown') + ', model: ' + (rec.model || 'unknown') +
         '. This is the provider that actually ran.';
+    }
+
+    var frontEl = document.getElementById('frontPreview');
+    if (frontEl) { frontEl.innerHTML = job.preview_svg || '<p>No preview for this job.</p>'; }
+    var btnWrap = document.getElementById('sheetButtons');
+    var sheetEl = document.getElementById('sheetPreview');
+    if (btnWrap && sheetEl) {
+      btnWrap.innerHTML = '';
+      var sheetSvgs = job.sheet_svgs || [];
+      sheetSvgs.forEach(function (svg, i) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = 'Sheet ' + (i + 1);
+        b.addEventListener('click', function () { sheetEl.innerHTML = svg; });
+        btnWrap.appendChild(b);
+      });
+      sheetEl.innerHTML = sheetSvgs.length ? sheetSvgs[0] : '<p>No nesting preview.</p>';
     }
 
     var prov = (job.params && job.params.provisional) || [];
@@ -476,6 +506,12 @@
       if (layout === 'drawers-over-doors') inner += bar(x0 + bw / 2 - 12, y0 + th / 2 - 1.5, 24);
       inner += rect(x0, y0 + th, bw / 2, bh - th) + rect(x0 + bw / 2, y0 + th, bw / 2, bh - th);
       inner += knob(x0 + bw / 2 - 8, y0 + th + 10) + knob(x0 + bw / 2 + 8, y0 + th + 10);
+    } else if (layout === 'drawer-over-door') {
+      const th = bh / 3;
+      inner += rect(x0, y0, bw, th);
+      inner += bar(x0 + bw / 2 - 12, y0 + th / 2 - 1.5, 24);
+      inner += rect(x0, y0 + th, bw, bh - th);
+      inner += knob(x0 + bw / 2, y0 + th + 10);
     } else if (layout === 'pantry') {
       inner += rect(x0, y0, bw / 2, bh) + rect(x0 + bw / 2, y0, bw / 2, bh);
       inner += knob(x0 + bw / 2 - 8, y0 + bh / 2) + knob(x0 + bw / 2 + 8, y0 + bh / 2);

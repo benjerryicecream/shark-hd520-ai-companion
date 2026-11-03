@@ -138,6 +138,24 @@ is presented as locked unless it says so.
   brief typed, the record says Meta even though no call ran,
   because there is nothing to parse. Documented, not yet fixed.
 
+## Result previews (2026-11-02, pending push)
+- Every passing job now carries a front-elevation SVG
+  (preview_svg) and one SVG per nesting sheet (sheet_svgs).
+  The front drawing is built from the job's params and layout
+  rules, so rect sizes match the front parts in the parts list;
+  walls show a mount line and no toe kick, base cabinets show
+  the toe kick as a separate ladder pack. Sheet drawings show
+  each placed tile at actual size, labeled with part id, R when
+  rotated, T<n> for tile index. Both are monochrome schematics,
+  not photos: gaps and hardware are not shown. Deliberately
+  not AI-generated pictures, which would invent details and
+  mismatch the parts list.
+- The UI results show the front preview first, then sheet
+  buttons (one per setup) that swap the sheet drawing. The
+  preview box is screen-only: print stays cut-list-only.
+- The layout picker and live sketch gained the drawer-over-door
+  card and branch (one drawer top third, one door below).
+
 ## Desktop work still to do
 
 - VCarve round-trip: import the demo DXF into VCarve Pro 11 and

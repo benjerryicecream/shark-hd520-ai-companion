@@ -217,8 +217,8 @@ class TestPreflight(unittest.TestCase):
 
 class TestLayouts(unittest.TestCase):
     def test_all_layouts_pass(self):
-        for layout in ("doors", "drawers-over-doors", "drawer-bank",
-                       "sink-base", "wall"):
+        for layout in ("doors", "drawers-over-doors", "drawer-over-door",
+                       "drawer-bank", "sink-base", "wall"):
             job = generate_cabinet({"width_in": 34, "layout": layout})
             self.assertTrue(job["preflight"]["passed"], layout)
             self.assertGreater(len(job["parts"]), 0, layout)
@@ -363,6 +363,61 @@ class TestProviderRecord(unittest.TestCase):
         job = generate_cabinet({"width_in": 34, "layout": "drawer-bank"})
         self.assertEqual(job["provider_record"]["provider"], "local")
         self.assertEqual(job["provider_record"]["model"], "none")
+
+
+class TestDrawerOverDoor(unittest.TestCase):
+    def test_one_drawer_one_door(self):
+        job = generate_cabinet({"width_in": 34, "height_box_in": 30,
+                                "layout": "drawer-over-door"})
+        self.assertTrue(job["preflight"]["passed"])
+        ids = [p["id"] for p in job["parts"]]
+        # Carcass 6 + 1 drawer front + 1 drawer box of 4 + 1 door.
+        self.assertEqual(len(job["parts"]), 12)
+        self.assertIn("drawer-1-front", ids)
+        self.assertIn("door", ids)
+        self.assertNotIn("door-left", ids)
+        front = [p for p in job["parts"] if p["id"] == "drawer-1-front"][0]
+        door = [p for p in job["parts"] if p["id"] == "door"][0]
+        self.assertAlmostEqual(front["width_in"], 33.875)
+        self.assertAlmostEqual(front["height_in"], 10.0)
+        self.assertAlmostEqual(door["width_in"], 33.875)
+        self.assertAlmostEqual(door["height_in"], 19.5)
+
+    def test_drawer_over_door_brief_phrases(self):
+        self.assertEqual(
+            parse_brief_local("drawer over door, 34 wide").get("layout"),
+            "drawer-over-door")
+        self.assertEqual(
+            parse_brief_local(
+                "one door and one drawer on top, 30 wide").get("layout"),
+            "drawer-over-door")
+
+
+class TestPreview(unittest.TestCase):
+    def test_front_svg_matches_drawer_over_door_parts(self):
+        job = generate_cabinet({"width_in": 34, "height_box_in": 30,
+                                "layout": "drawer-over-door"})
+        svg = job["preview_svg"]
+        # Drawer rect 33.875 x 10 in, door rect 33.875 x 19.5 in, at
+        # 10 px per inch.
+        self.assertIn('width="338.75"', svg)
+        self.assertIn('height="100"', svg)
+        self.assertIn('height="195"', svg)
+        self.assertIn("toe kick", svg)
+
+    def test_wall_front_svg_has_no_toe_kick(self):
+        job = generate_cabinet({"width_in": 36, "height_box_in": 21,
+                                "depth_in": 12, "layout": "wall"})
+        self.assertNotIn("toe kick", job["preview_svg"])
+        self.assertIn("<line", job["preview_svg"])
+
+    def test_sheet_svgs_cover_demo_job(self):
+        job = demo_job()
+        self.assertEqual(len(job["sheet_svgs"]), 10)
+        joined = "\n".join(job["sheet_svgs"])
+        self.assertIn("side-left", joined)
+        for svg in job["sheet_svgs"]:
+            self.assertIn("<rect", svg)
 
 
 if __name__ == "__main__":
