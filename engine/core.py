@@ -856,6 +856,63 @@ def export_front_svg(job):
     return "\n".join(out) + "\n"
 
 
+def export_part_svgs(job):
+    """One SVG per part (schematic).
+
+    Each drawing shows the part at its true proportions (scaled to
+    fit), its size, material, thickness, grain direction, and edge
+    banding as text. Edge positions are not drawn: the part record
+    names the banded edge but not its orientation on the panel.
+    Returns a list of {part_id, name, svg}.
+    """
+    drawings = []
+    for part in job.get("parts", []) or []:
+        w = part["width_in"]
+        h = part["height_in"]
+        s = min(10.0, 420.0 / w, 300.0 / h)
+        ox, oy = 40.0, 28.0
+        vb_w = w * s + 48.0
+        vb_h = h * s + 56.0
+        out = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s" '
+               'role="img" aria-label="Drawing of %s">'
+               % (_fmt(vb_w), _fmt(vb_h), part["name"])]
+        out.append('<title>%s: %s x %s in</title>'
+                   % (part["name"], _fmt(w), _fmt(h)))
+        out.append('<text x="%s" y="%s" font-size="11" text-anchor="middle" '
+                   'fill="#1a1a1a">%s in wide</text>'
+                   % (_fmt(ox + w * s / 2.0), _fmt(oy - 8.0), _fmt(w)))
+        cy = oy + h * s / 2.0
+        out.append('<text x="12" y="%s" font-size="11" text-anchor="middle" '
+                   'fill="#1a1a1a" transform="rotate(-90 12 %s)">%s in tall'
+                   '</text>' % (_fmt(cy), _fmt(cy), _fmt(h)))
+        out.append('<rect x="%s" y="%s" width="%s" height="%s" '
+                   'fill="#f4f4f2" stroke="#1a1a1a" stroke-width="1.5"/>'
+                   % (_fmt(ox), _fmt(oy), _fmt(w * s), _fmt(h * s)))
+        for i in range(1, 6):
+            if part["grain"] == "vertical":
+                gx = ox + w * s * i / 6.0
+                out.append('<line x1="%s" y1="%s" x2="%s" y2="%s" '
+                           'stroke="#bbbbbb" stroke-width="1"/>'
+                           % (_fmt(gx), _fmt(oy), _fmt(gx),
+                              _fmt(oy + h * s)))
+            else:
+                gy = oy + h * s * i / 6.0
+                out.append('<line x1="%s" y1="%s" x2="%s" y2="%s" '
+                           'stroke="#bbbbbb" stroke-width="1"/>'
+                           % (_fmt(ox), _fmt(gy),
+                              _fmt(ox + w * s), _fmt(gy)))
+        out.append('<text x="%s" y="%s" font-size="11" fill="#1a1a1a">'
+                   '%s, %s in thick, grain %s, edge banding: %s, qty %d'
+                   '</text>'
+                   % (_fmt(ox), _fmt(oy + h * s + 20.0), part["material"],
+                      _fmt(part["thickness_in"]), part["grain"],
+                      part["edge_banding"], part["quantity"]))
+        out.append('</svg>')
+        drawings.append({"part_id": part["id"], "name": part["name"],
+                         "svg": "\n".join(out) + "\n"})
+    return drawings
+
+
 def export_sheet_svgs(job):
     """One SVG per nesting sheet, from placements (schematic).
 
@@ -917,16 +974,13 @@ def generate_cabinet(params):
     if not isinstance(params, dict):
         raise ValueError("params must be a dict")
     raw = dict(params)
-    layout = raw.get("layout")
-    if layout not in LAYOUTS:
-        raise ValueError("layout must be one of: %s" % ", ".join(LAYOUTS))
-    if raw.get("width_in") is None:
-        raise ValueError("width_in is required")
     provider = raw.get("provider", "local")
     if provider not in ("meta", "local"):
         raise ValueError("provider must be 'meta' or 'local'")
 
     # Brief parsing: explicit params always win over parsed params.
+    # Layout and width are validated AFTER this block, so a brief
+    # alone can supply them (the "let the description decide" path).
     brief_text = raw.get("brief_text")
     if brief_text:
         if provider == "meta":
@@ -947,7 +1001,11 @@ def generate_cabinet(params):
             if key not in ("brief_text", "provider", "base_url", "model"):
                 merged[key] = value
         raw = merged
-        layout = raw.get("layout", layout)
+    layout = raw.get("layout")
+    if layout not in LAYOUTS:
+        raise ValueError("layout must be one of: %s" % ", ".join(LAYOUTS))
+    if raw.get("width_in") is None:
+        raise ValueError("width_in is required")
 
     if layout == "pantry" and raw.get("height_box_in") is None:
         if raw.get("overall_height_in") is not None:
@@ -1030,11 +1088,13 @@ def generate_cabinet(params):
         job["cut_list_text"] = export_cut_list(job)
         job["preview_svg"] = export_front_svg(job)
         job["sheet_svgs"] = export_sheet_svgs(job)
+        job["part_svgs"] = export_part_svgs(job)
     else:
         job["dxf_text"] = ""
         job["cut_list_text"] = ""
         job["preview_svg"] = ""
         job["sheet_svgs"] = []
+        job["part_svgs"] = []
     return job
 
 
@@ -1070,11 +1130,19 @@ def parse_brief_local(brief_text):
         box_h = _find_number(r"box[^0-9]*" + _NUMBER, text)
     if box_h is None:
         box_h = _find_number(_NUMBER + r"\s*(?:in|inch|inches|\")\s*tall", text)
+    if box_h is None:
+        box_h = _find_number(_NUMBER + r"\s*tall", text)
+    if box_h is None:
+        box_h = _find_number(_NUMBER + r"\s*(?:in|inch|inches|\")?\s*high", text)
+    if box_h is None:
+        box_h = _find_number(r"height[^0-9]*" + _NUMBER, text)
     if box_h is not None:
         params["height_box_in"] = box_h
     depth = _find_number(r"depth[^0-9]*" + _NUMBER, text)
     if depth is None:
         depth = _find_number(_NUMBER + r"\s*(?:in|inch|inches|\")\s*deep", text)
+    if depth is None:
+        depth = _find_number(_NUMBER + r"\s*deep", text)
     if depth is not None:
         params["depth_in"] = depth
     if "wall" in text:

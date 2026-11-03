@@ -156,6 +156,33 @@ is presented as locked unless it says so.
 - The layout picker and live sketch gained the drawer-over-door
   card and branch (one drawer top third, one door below).
 
+## Full visualizer + brief decides (2026-11-02, pending push)
+- "Let the description decide" checkbox under the brief box.
+  When checked, the form sends only the description (plus
+  provider), and the description sets width, height, depth,
+  layout, and thickness. Checked with an empty description
+  refuses with a plain message instead of submitting. While
+  checked, the form's live sketch hides, since it cannot know
+  the description's dims; the result preview after Generate
+  shows the actual job.
+- Engine fix the checkbox required: layout and width used to
+  be validated before the brief was read, so a brief alone
+  could never work. Validation now runs after brief parsing.
+  Calls without a brief behave exactly as before.
+- Local reader hardened for real phrasing: height now accepts
+  "high" and bare "height N" alongside "tall" and "box height";
+  depth and height accept a bare number ("12 deep", "21 tall")
+  as well as a unit ("12 inch deep"). Width already had a
+  bare fallback.
+- Part drawings: every passing job carries one SVG per part
+  (part_svgs), each at true proportions with size, material,
+  thickness, grain direction lines, and edge banding as text.
+  Edge positions are not drawn, since the part record names
+  the banded edge but not its orientation. The UI Preview box
+  gained a Part drawings row of buttons that swap the drawing.
+  The visualizer now covers the cabinet front, every part, and
+  every nesting sheet. Print stays cut-list-only.
+
 ## Desktop work still to do
 
 - VCarve round-trip: import the demo DXF into VCarve Pro 11 and

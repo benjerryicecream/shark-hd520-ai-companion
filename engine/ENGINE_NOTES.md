@@ -257,10 +257,24 @@ from file 2 plus the file 3 tapered row. The file 2 tapered row
 - export_cut_list(job) -> str (monochrome printable plain text:
   parts, sizes, quantities, material, setup number per part,
   Tide & Tool style header)
+- export_front_svg(job) -> str (front-elevation schematic from
+  the job's params and layout rules; rect sizes match the front
+  parts)
+- export_sheet_svgs(job) -> list of str (one schematic per
+  nesting sheet, placements at actual size)
+- export_part_svgs(job) -> list of {part_id, name, svg} (one
+  schematic per part: true proportions, size, material,
+  thickness, grain direction, edge banding as text; edge
+  positions are not drawn)
+- Passing jobs carry preview_svg, sheet_svgs, and part_svgs.
+  Failing jobs carry empty versions. Layout and width are
+  validated after brief parsing, so a brief alone can supply
+  them (the "let the description decide" path).
 - parse_brief_local(brief_text) -> params dict (regex/keyword,
   no model; understands width, height, depth, layout words like
   doors/drawers/sink/pantry, material words like PureBond, pin
-  grid on/off)
+  grid on/off; height accepts "tall", "high", and bare "height
+  N"; dimensions accept a unit or none, as in "12 deep")
 - parse_brief_meta(brief_text, api_key, base_url, model) -> params
   dict (OpenAI-compatible POST to {base_url}/chat/completions
   via urllib only, 30s timeout, system prompt asking for cabinet

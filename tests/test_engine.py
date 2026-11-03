@@ -420,5 +420,33 @@ class TestPreview(unittest.TestCase):
             self.assertIn("<rect", svg)
 
 
+class TestBriefDecides(unittest.TestCase):
+    def test_brief_only_drives_the_job(self):
+        # The shape the UI sends when "let the description decide"
+        # is checked: only a brief, no form values.
+        job = generate_cabinet(
+            {"brief_text": "36 inch wide wall cabinet, 21 high, 12 deep"})
+        self.assertTrue(job["preflight"]["passed"])
+        self.assertEqual(job["params"]["layout"], "wall")
+        self.assertEqual(job["params"]["width_in"], 36)
+        self.assertEqual(job["params"]["height_box_in"], 21)
+        self.assertEqual(job["params"]["depth_in"], 12)
+
+
+class TestPartDrawings(unittest.TestCase):
+    def test_one_drawing_per_part(self):
+        job = demo_job()
+        self.assertEqual(len(job["part_svgs"]), len(job["parts"]))
+        self.assertEqual(len(job["part_svgs"]), 16)
+        by_id = {d["part_id"]: d for d in job["part_svgs"]}
+        side = by_id["side-left"]
+        self.assertEqual(side["name"], "Side left")
+        self.assertIn("Side left: 24 x 30 in", side["svg"])
+        self.assertIn("grain vertical", side["svg"])
+        self.assertIn("<rect", side["svg"])
+        for drawing in job["part_svgs"]:
+            self.assertIn("<svg", drawing["svg"])
+
+
 if __name__ == "__main__":
     unittest.main()

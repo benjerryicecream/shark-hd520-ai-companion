@@ -40,8 +40,8 @@
   .layoutCard:focus-within { outline: 3px solid rgba(37, 99, 235, 0.4); outline-offset: 2px; }
   #previewSvg { width: 100%; max-width: 420px; height: auto; display: block; margin: 0 auto; }
   #frontPreview svg { width: 100%; max-width: 520px; height: auto; display: block; margin: 0 auto; }
-  #sheetPreview svg { width: 100%; max-width: 520px; height: auto; display: block; margin: 0 auto; }
-  #sheetButtons button { margin: 0 4px 4px 0; }
+  #sheetPreview svg, #partPreview svg { width: 100%; max-width: 520px; height: auto; display: block; margin: 0 auto; }
+  #sheetButtons button, #partButtons button { margin: 0 4px 4px 0; }
   #previewNote { color: #555; font-size: 0.9em; margin: 0.5em 0 0; text-align: center; }
   @media print {
     body { color: #000; background: #fff; margin: 0; max-width: none; }
@@ -60,6 +60,7 @@
 <form id="cabForm">
   <label for="brief">Brief (plain words, optional)</label>
   <textarea id="brief" rows="3" placeholder="Example: 34 inch wide drawer bank, PureBond birch"></textarea>
+  <label><input type="checkbox" id="briefDecides"> Let the description decide (description sets width, height, depth, layout, thickness)</label>
 
   <div class="row">
     <div>
@@ -145,6 +146,9 @@
     <h3>Nesting sheets</h3>
     <div id="sheetButtons"></div>
     <div id="sheetPreview"></div>
+    <h3>Part drawings</h3>
+    <div id="partButtons"></div>
+    <div id="partPreview"></div>
   </div>
 
   <div class="box" id="providerBox">
@@ -218,6 +222,11 @@
     sessionStorage.setItem('hd520_api_token', token);
     var caller = document.getElementById('caller').value.trim() || 'ui';
     var brief = document.getElementById('brief').value.trim();
+    var briefDecides = document.getElementById('briefDecides').checked;
+    if (briefDecides && !brief) {
+      document.getElementById('status').textContent = 'Type a description first, or uncheck "Let the description decide".';
+      return;
+    }
     var params = {
       width_in: parseFloat(document.getElementById('width').value),
       height_box_in: parseFloat(document.getElementById('boxHeight').value),
@@ -232,6 +241,10 @@
     if (params.layout === 'wall') { params.overall_height_in = params.height_box_in; }
     var jobName = document.getElementById('jobName').value.trim();
     if (jobName) { params.job_name = jobName; }
+    if (briefDecides) {
+      params = { brief_text: brief, provider: document.getElementById('provider').value };
+      if (jobName) { params.job_name = jobName; }
+    }
 
     var status = document.getElementById('status');
     status.textContent = 'Generating...';
@@ -283,6 +296,20 @@
         btnWrap.appendChild(b);
       });
       sheetEl.innerHTML = sheetSvgs.length ? sheetSvgs[0] : '<p>No nesting preview.</p>';
+    }
+    var partBtnWrap = document.getElementById('partButtons');
+    var partEl = document.getElementById('partPreview');
+    if (partBtnWrap && partEl) {
+      partBtnWrap.innerHTML = '';
+      var partSvgs = job.part_svgs || [];
+      partSvgs.forEach(function (entry) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = entry.name;
+        b.addEventListener('click', function () { partEl.innerHTML = entry.svg; });
+        partBtnWrap.appendChild(b);
+      });
+      partEl.innerHTML = partSvgs.length ? partSvgs[0].svg : '<p>No part drawings.</p>';
     }
 
     var prov = (job.params && job.params.provisional) || [];
@@ -528,9 +555,16 @@
     if (note) note.textContent = 'Front view, drawn from your width and height. Gaps and hardware not shown.';
   }
   document.querySelectorAll('input[name="layout"]').forEach((r) => r.addEventListener('change', () => { syncLayoutCards(); updatePreview(); }));
+  function syncBriefDecides() {
+    var box = document.getElementById('previewBox');
+    var on = document.getElementById('briefDecides').checked;
+    if (box) { box.style.display = on ? 'none' : ''; }
+  }
+  document.getElementById('briefDecides').addEventListener('change', syncBriefDecides);
   ['width', 'boxHeight'].forEach((id) => { const el = document.getElementById(id); if (el) el.addEventListener('input', updatePreview); });
   syncLayoutCards();
   updatePreview();
+  syncBriefDecides();
 
   refreshSettings();
 })();
