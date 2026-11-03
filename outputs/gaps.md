@@ -196,3 +196,21 @@ is presented as locked unless it says so.
 - Binding manual check: confirm from the desktop that nothing
   outside localhost can reach the REST server. Non-local
   reachability testing was out of scope on this VM.
+
+## Token row never hid in desktop mode (2026-11-02, fix built, pending push)
+
+Cause: the server injected the token script before `</body>`, but the page's
+main script ends just before `</body>` and reads `window.HD520_TOKEN` at
+init time. The injected script ran after init, so the token row stayed
+visible and empty, and every Generate failed auth. The earlier VM check
+only inspected the served page text, never a real browser, so it missed
+this; the hide claim was unproven on Chase's machine until this report.
+
+Fix: inject the token script before the first `<script>` tag instead
+(fallback to before `</body>` when the page has no script). Verified live:
+the token assignment now sits before the main script in the served page.
+Launcher hardened in the same fix: the launch wait now requires `/health`
+to report `desktop: true`, and on timeout it logs and opens no window
+instead of opening against a leftover normal-mode server on 8791.
+Reaches the exe only after push + rebuild (the exe freezes code at build
+time); a from-source run picks it up on pull + reopen.

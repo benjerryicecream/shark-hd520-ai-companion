@@ -34,15 +34,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 URL = "http://127.0.0.1:8791/"
 
 
+def _is_desktop_server():
+    """True only when the server on 8791 reports desktop mode.
+
+    A plain 200 is not enough: a leftover normal-mode server would
+    answer health too, and opening the window against it shows the
+    token field with a token that does not match this run.
+    """
+    try:
+        import json
+        with urllib.request.urlopen(URL + "health", timeout=1) as resp:
+            if resp.status != 200:
+                return False
+            return json.loads(resp.read().decode("utf-8")).get("desktop") is True
+    except Exception:
+        return False
+
+
 def _wait_for_server(timeout_s=60.0):
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        try:
-            with urllib.request.urlopen(URL + "health", timeout=1) as resp:
-                if resp.status == 200:
-                    return True
-        except Exception:
-            time.sleep(0.2)
+        if _is_desktop_server():
+            return True
+        time.sleep(0.2)
     return False
 
 
@@ -67,7 +81,15 @@ def _find_chrome():
 
 def _open_browser():
     import webbrowser
-    _wait_for_server()
+    if not _wait_for_server():
+        # Do not open a window against some other server on this port:
+        # a normal-mode server would show the token field and the token
+        # would not match this run. Say so in the log and stop.
+        sys.stderr.write(
+            "HD520Companion: no desktop server answered on 8791 within "
+            "60s. Another server may already hold the port; close it "
+            "and relaunch.\n")
+        return False
     chrome = _find_chrome()
     if chrome:
         try:

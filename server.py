@@ -283,11 +283,19 @@ class Handler(BaseHTTPRequestHandler):
                 # docstring: the page is served to localhost only, and
                 # the token still gates every API call from any other
                 # client. The token is URL-safe, but escape it anyway.
+                # The token script must run BEFORE the page's own
+                # script: the page reads window.HD520_TOKEN at init
+                # time, so injecting before </body> landed too late
+                # and the token row never hid (found 2026-11-02).
                 safe = API_TOKEN.replace("\\", "\\\\").replace('"', '\\"')
-                page = page.replace(
-                    "</body>",
-                    '<script>window.HD520_TOKEN = "%s";</script></body>'
-                    % safe, 1)
+                token_script = ('<script>window.HD520_TOKEN="%s";</script>'
+                                % safe)
+                if "<script>" in page:
+                    page = page.replace("<script>",
+                                        token_script + "<script>", 1)
+                else:
+                    page = page.replace("</body>",
+                                        token_script + "</body>", 1)
             self._send_text(200, page, "text/html; charset=utf-8")
             return
         self._send_json(404, {"error": "Not found."})
